@@ -125,6 +125,7 @@ static timeUs_t suspendRxSignalUntil = 0;
 static uint8_t  skipRxSamples = 0;
 
 static float rcRaw[MAX_SUPPORTED_RC_CHANNEL_COUNT];     // last received raw value, as it comes
+float rcRawNoOverride[MAX_SUPPORTED_RC_CHANNEL_COUNT];
 float rcData[MAX_SUPPORTED_RC_CHANNEL_COUNT];           // scaled, modified, checked and constrained values
 uint32_t validRxSignalTimeout[MAX_SUPPORTED_RC_CHANNEL_COUNT];
 
@@ -671,12 +672,14 @@ static void readRxChannelsApplyRanges(void)
         {
             sample = rxRuntimeState.rcReadRawFn(&rxRuntimeState, rawChannel);
         }
-
+        
+        rcRawNoOverride[channel] = rxRuntimeState.rcReadRawFn(&rxRuntimeState, rawChannel);
+        
         // apply the rx calibration
         if (channel < NON_AUX_CHANNEL_COUNT) {
             sample = applyRxChannelRangeConfiguraton(sample, rxChannelRangeConfigs(channel));
         }
-
+        
         rcRaw[channel] = sample;
     }
 }
