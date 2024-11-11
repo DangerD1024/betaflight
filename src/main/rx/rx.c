@@ -126,6 +126,7 @@ static uint8_t  skipRxSamples = 0;
 
 static float rcRaw[MAX_SUPPORTED_RC_CHANNEL_COUNT];     // last received raw value, as it comes
 float rcData[MAX_SUPPORTED_RC_CHANNEL_COUNT];           // scaled, modified, checked and constrained values
+float rcRawNoOverride[MAX_SUPPORTED_RC_CHANNEL_COUNT];
 uint32_t validRxSignalTimeout[MAX_SUPPORTED_RC_CHANNEL_COUNT];
 
 #define MAX_INVALID_PULSE_TIME_MS 300                   // hold time in milliseconds after bad channel or Rx link loss
@@ -641,7 +642,10 @@ static uint16_t getRxfailValue(uint8_t channel)
             return rcData[channel]; // last good value
         }
     case RX_FAILSAFE_MODE_SET:
-        return RXFAIL_STEP_TO_CHANNEL_VALUE(channelFailsafeConfig->step);
+        if(channel == PITCH && FLIGHT_MODE(ANGLE_MODE))
+            return 2000;
+        else
+            return RXFAIL_STEP_TO_CHANNEL_VALUE(channelFailsafeConfig->step);
     }
 }
 
@@ -673,6 +677,7 @@ static void readRxChannelsApplyRanges(void)
         {
             sample = rxRuntimeState.rcReadRawFn(&rxRuntimeState, rawChannel);
         }
+        rcRawNoOverride[channel] = rxRuntimeState.rcReadRawFn(&rxRuntimeState, rawChannel);
 
         // apply the rx calibration
         if (channel < NON_AUX_CHANNEL_COUNT) {
