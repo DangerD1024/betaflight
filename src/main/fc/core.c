@@ -1040,6 +1040,12 @@ void processRxModes(timeUs_t currentTimeUs)
     }
 #endif
 
+
+    if(IS_RC_MODE_ACTIVE(BOXANGLE) && IS_RC_MODE_ACTIVE(BOXMSPOVERRIDE)) {
+        DISABLE_FLIGHT_MODE(ALT_HOLD_MODE);
+        DISABLE_FLIGHT_MODE(ANGLE_MODE);
+    }
+
     if (IS_RC_MODE_ACTIVE(BOXHORIZON) && canUseHorizonMode && sensors(SENSOR_ACC)) {
         DISABLE_FLIGHT_MODE(ANGLE_MODE);
         if (!FLIGHT_MODE(HORIZON_MODE)) {
