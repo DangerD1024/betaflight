@@ -50,6 +50,7 @@
 #include "flight/imu.h"
 #include "flight/mixer.h"
 #include "flight/rpm_filter.h"
+#include "flight/target_attitude.h"
 
 #include "io/gps.h"
 
@@ -884,6 +885,12 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
     rpmFilterUpdate();
 #endif
 
+#if defined(USE_ACC)
+    // TARGET_MODE: refresh the quaternion-error -> body-rate setpoints once per
+    // loop so all three axes use one consistent attitude snapshot.
+    targetAttitudeUpdate(currentTimeUs);
+#endif
+
     // ----------PID controller----------
     for (int axis = FD_ROLL; axis <= FD_YAW; ++axis) {
 
@@ -891,9 +898,24 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
         if (pidRuntime.maxVelocity[axis]) {
             currentPidSetpoint = accelerationLimit(axis, currentPidSetpoint);
         }
+
+        bool targetModeActive = false;
+#if defined(USE_ACC)
+        if (FLIGHT_MODE(TARGET_MODE) && targetAttitudeIsFresh()) {
+            // TARGET_MODE owns the attitude loop: the external quaternion
+            // controller supplies the body-rate setpoint directly. Bypass the
+            // stick/angle (pidLevel) path entirely - the inner rate PID below
+            // tracks this setpoint exactly as it does a stick-commanded rate.
+            currentPidSetpoint = targetAttitudeRateSetpoint(axis);
+            pidRuntime.axisInAngleMode[axis] = false;
+            targetModeActive = true;
+        }
+#endif
+
         // Yaw control is GYRO based, direct sticks control is applied to rate PID
         // When Race Mode is active PITCH control is also GYRO based in level or horizon mode
 #if defined(USE_ACC)
+        if (!targetModeActive) {
         pidRuntime.axisInAngleMode[axis] = false;
         if (axis < FD_YAW) {
             if (levelMode == LEVEL_MODE_RP || (levelMode == LEVEL_MODE_R && axis == FD_ROLL)) {
@@ -916,6 +938,9 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
                 }
             }
         }
+        } // !targetModeActive
+#else
+        UNUSED(targetModeActive);
 #endif
 
 #ifdef USE_ACRO_TRAINER

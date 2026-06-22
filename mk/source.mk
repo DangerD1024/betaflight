@@ -98,6 +98,7 @@ COMMON_SRC = \
             flight/pid_init.c \
             flight/rpm_filter.c \
             flight/servos.c \
+            flight/target_attitude.c \
             flight/servos_tricopter.c \
             io/serial_4way.c \
             io/serial_4way_avrootloader.c \
@@ -328,6 +329,7 @@ SPEED_OPTIMISED_SRC := $(SPEED_OPTIMISED_SRC) \
             flight/mixer.c \
             flight/pid.c \
             flight/rpm_filter.c \
+            flight/target_attitude.c \
             rx/ibus.c \
             rx/rc_stats.c \
             rx/rx.c \

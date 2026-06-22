@@ -72,6 +72,7 @@
 #include "flight/position.h"
 #include "flight/rpm_filter.h"
 #include "flight/servos.h"
+#include "flight/target_attitude.h"
 
 #include "io/beeper.h"
 #include "io/gps.h"
@@ -997,6 +998,19 @@ void processRxModes(timeUs_t currentTimeUs)
         }
     } else {
         DISABLE_FLIGHT_MODE(GPS_RESCUE_MODE);
+    }
+#endif
+
+#if defined(USE_ACC)
+    // TARGET_MODE: external quaternion-attitude setpoint (streamed over MSP by the
+    // interceptor app). Engage only when armed, the ACC is present, and a fresh
+    // setpoint has arrived recently (stale-setpoint failsafe -> mode drops).
+    if (ARMING_FLAG(ARMED) && IS_RC_MODE_ACTIVE(BOXTARGET) && sensors(SENSOR_ACC) && targetAttitudeIsFresh()) {
+        if (!FLIGHT_MODE(TARGET_MODE)) {
+            ENABLE_FLIGHT_MODE(TARGET_MODE);
+        }
+    } else {
+        DISABLE_FLIGHT_MODE(TARGET_MODE);
     }
 #endif
 

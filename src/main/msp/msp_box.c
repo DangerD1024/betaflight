@@ -94,6 +94,7 @@ static const box_t boxes[CHECKBOX_ITEM_COUNT] = {
     { .boxId = BOXPIDAUDIO, .boxName = "PID AUDIO", .permanentId = 44 },
     { .boxId = BOXPARALYZE, .boxName = "PARALYZE", .permanentId = 45 },
     { .boxId = BOXGPSRESCUE, .boxName = "GPS RESCUE", .permanentId = 46 },
+    { .boxId = BOXTARGET, .boxName = "TARGET", .permanentId = 55 },
     { .boxId = BOXACROTRAINER, .boxName = "ACRO TRAINER", .permanentId = 47 },
     { .boxId = BOXVTXCONTROLDISABLE, .boxName = "VTX CONTROL DISABLE", .permanentId = 48},
     { .boxId = BOXLAUNCHCONTROL, .boxName = "LAUNCH CONTROL", .permanentId = 49 },
@@ -208,6 +209,7 @@ void initActiveBoxIds(void)
         BME(BOXHEADFREE);
         BME(BOXHEADADJ);
         BME(BOXFPVANGLEMIX);
+        BME(BOXTARGET);
         if (featureIsEnabled(FEATURE_INFLIGHT_ACC_CAL)) {
             BME(BOXCALIB);
         }

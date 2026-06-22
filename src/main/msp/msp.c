@@ -91,6 +91,7 @@
 #include "flight/position.h"
 #include "flight/rpm_filter.h"
 #include "flight/servos.h"
+#include "flight/target_attitude.h"
 
 #include "io/asyncfatfs/asyncfatfs.h"
 #include "io/beeper.h"
@@ -2692,6 +2693,23 @@ static mspResult_e mspProcessInCommand(mspDescriptor_t srcDesc, int16_t cmdMSP, 
             }
         }
 #endif
+        break;
+
+    case MSP_SET_TARGET_ATTITUDE:
+        // TARGET_MODE desired attitude quaternion (body->earth) + gain.
+        // 10 bytes LE: int16 qw,qx,qy,qz (x16384), int16 gain (x10000).
+        if (dataSize < 10) {
+            return MSP_RESULT_ERROR;
+        }
+        {
+            const float qs = 1.0f / 16384.0f;
+            const float w = (int16_t)sbufReadU16(src) * qs;
+            const float x = (int16_t)sbufReadU16(src) * qs;
+            const float y = (int16_t)sbufReadU16(src) * qs;
+            const float z = (int16_t)sbufReadU16(src) * qs;
+            const float gain = (int16_t)sbufReadU16(src) / 10000.0f;
+            targetAttitudeSet(w, x, y, z, gain);
+        }
         break;
 #if defined(USE_ACC)
     case MSP_SET_ACC_TRIM:
