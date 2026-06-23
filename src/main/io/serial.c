@@ -215,7 +215,14 @@ void pgResetFn_serialConfig(serialConfig_t *serialConfig)
     }
 #endif
 
-    serialConfig->reboot_character = 'R';
+    // Default the legacy single-byte serial reboot-to-bootloader trigger to
+    // DISABLED (0). On a companion-computer MSP link (e.g. the VOT_C interceptor
+    // on /dev/serial0) a stray byte equal to reboot_character -- from UART noise
+    // or a desynced binary stream while the FC is disarmed -- would otherwise DFU
+    // the board mid-flight/mid-session. DFU stays reachable via MSP_SET_REBOOT
+    // (the configurator) and the bootloader pin. Set reboot_character = 82 ('R')
+    // to restore the legacy terminal behaviour.
+    serialConfig->reboot_character = 0;
     serialConfig->serial_update_rate_hz = 100;
 }
 

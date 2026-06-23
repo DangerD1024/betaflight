@@ -143,7 +143,7 @@ typedef struct serialPortConfig_s {
 typedef struct serialConfig_s {
     serialPortConfig_t portConfigs[SERIAL_PORT_COUNT];
     uint16_t serial_update_rate_hz;
-    uint8_t reboot_character;               // which byte is used to reboot. Default 'R', could be changed carefully to something else.
+    uint8_t reboot_character;               // byte that triggers reboot-to-bootloader on a serial port. 0 = DISABLED (default on this build, so stray companion-computer bytes can't DFU the FC); set to 82 ('R') for the legacy behaviour.
 } serialConfig_t;
 
 PG_DECLARE(serialConfig_t, serialConfig);

@@ -447,7 +447,9 @@ static mspPostProcessFnPtr mspSerialProcessReceivedCommand(mspPort_t *msp, mspPr
 
 static void mspEvaluateNonMspData(mspPort_t * mspPort, uint8_t receivedChar)
 {
-   if (receivedChar == serialConfig()->reboot_character) {
+   // reboot_character == 0 disables the legacy single-byte reboot-to-bootloader
+   // trigger (default on this build) so stray serial bytes can't DFU the FC.
+   if (serialConfig()->reboot_character != 0 && receivedChar == serialConfig()->reboot_character) {
         mspPort->pendingRequest = MSP_PENDING_BOOTLOADER_ROM;
 #ifdef USE_CLI
    } else if (receivedChar == '#') {
