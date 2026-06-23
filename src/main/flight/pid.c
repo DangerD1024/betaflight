@@ -901,11 +901,11 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
 
         bool targetModeActive = false;
 #if defined(USE_ACC)
-        if (FLIGHT_MODE(TARGET_MODE) && targetAttitudeIsFresh()) {
-            // TARGET_MODE owns the attitude loop: the external quaternion
-            // controller supplies the body-rate setpoint directly. Bypass the
-            // stick/angle (pidLevel) path entirely - the inner rate PID below
-            // tracks this setpoint exactly as it does a stick-commanded rate.
+        if (FLIGHT_MODE(TARGET_MODE)) {
+            // TARGET_MODE owns the attitude loop: the quaternion controller supplies
+            // the body-rate setpoint directly (from VOT_C's streamed setpoint, or
+            // from the pilot's sticks when standalone). Bypass the stick/angle
+            // (pidLevel) path - the inner rate PID tracks this setpoint as usual.
             currentPidSetpoint = targetAttitudeRateSetpoint(axis);
             pidRuntime.axisInAngleMode[axis] = false;
             targetModeActive = true;
