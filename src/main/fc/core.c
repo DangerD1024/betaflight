@@ -1002,12 +1002,13 @@ void processRxModes(timeUs_t currentTimeUs)
 #endif
 
 #if defined(USE_ACC)
-    // TARGET_MODE: quaternion-attitude control. Engages on the AUX switch (armed +
-    // ACC). Source is chosen inside the controller: a fresh setpoint streamed over
-    // MSP by the interceptor app (autonomous tracker) drives it; otherwise it falls
-    // back to STANDALONE MANUAL (the pilot flies via the sticks, level-bank) -- so
-    // it works with no app running.
-    if (ARMING_FLAG(ARMED) && IS_RC_MODE_ACTIVE(BOXTARGET) && sensors(SENSOR_ACC)) {
+    // TARGET_MODE: quaternion-attitude control. Engages on the AUX switch + ACC
+    // (like ANGLE/HORIZON -- no arming gate, so it shows active in the configurator
+    // on the bench; disarmed the motors are off so the controller output is inert).
+    // Source is chosen inside the controller: a fresh setpoint streamed over MSP by
+    // the interceptor app (autonomous tracker) drives it; otherwise it falls back to
+    // STANDALONE MANUAL (the pilot flies via the sticks, level-bank).
+    if (IS_RC_MODE_ACTIVE(BOXTARGET) && sensors(SENSOR_ACC)) {
         if (!FLIGHT_MODE(TARGET_MODE)) {
             ENABLE_FLIGHT_MODE(TARGET_MODE);
         }
