@@ -207,7 +207,10 @@ static void targetBuildManualSetpoint(timeUs_t now, const quaternion *qCur, quat
     quatFromEulerBF(0.0f, manPitch, manYaw, qsp);   // roll = 0 -> wings level
 }
 
-void targetAttitudeUpdate(timeUs_t currentTimeUs)
+// NOINLINE: this is called once per PID loop (not per gyro sample). Keeping it out
+// of line stops LTO from pulling its body into the FAST_CODE pidController(), which
+// otherwise overflows the small ITCM on F7 targets (e.g. SPEDIXF722).
+NOINLINE void targetAttitudeUpdate(timeUs_t currentTimeUs)
 {
     if (!FLIGHT_MODE(TARGET_MODE)) {
         manInit = false;
