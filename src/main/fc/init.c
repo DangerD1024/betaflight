@@ -404,6 +404,10 @@ void init(void)
 #endif
 
     debugMode = systemConfig()->debug_mode;
+#ifdef SIMULATOR_BUILD
+    debugMode = DEBUG_ANGLE_TARGET;   // SITL test harness reads TARGET rateSp over MSP_DEBUG (CLI set crashes SITL)
+    imuConfigMutable()->small_angle = 180;  // SITL test: allow arming at any attitude (fresh eeprom default blocks it)
+#endif
 
 #ifdef TARGET_PREINIT
     targetPreInit();
