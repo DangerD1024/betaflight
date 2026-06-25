@@ -353,4 +353,4 @@
 #define MSP_SET_BOARD_INFO       248    //in message          Sets the board information for this board
 #define MSP_SET_SIGNATURE        249    //in message          Sets the signature of the board and serial number
 
-#define MSP_RAW_RC 199
+#define MSP_RAW_RC 115
