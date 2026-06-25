@@ -42,7 +42,7 @@
 // (the pilot flies via the sticks) -- it does NOT need the app to be running.
 #define TARGET_STALE_US      200000
 
-// Attitude proportional gain (1/s): body rate = 2 * Kp * gain * q_err_vec.
+// AUTONOMOUS path attitude proportional gain (1/s): body rate = 2 * Kp * gain * q_err_vec.
 #define TARGET_ATT_KP        8.0f
 
 // Body-rate clamps (deg/s). Conservative for a 300 km/h / ~80deg platform; the
@@ -50,23 +50,32 @@
 #define TARGET_MAX_RATE_RP   300.0f
 #define TARGET_MAX_RATE_YAW  180.0f
 
-// ---- standalone MANUAL mode (no external setpoint: pilot flies via the sticks) ----
-#define TARGET_MANUAL_GAIN        1.0f    // attitude gain for the manual path
-#define TARGET_MANUAL_LEAD_DEG    40.0f   // max setpoint lead vs actual (caps rate + soft settle)
-#define TARGET_MANUAL_PITCH_SIGN  (+1.0f) // positive pitch stick -> NOSE DOWN (pitch decreases)
-#define TARGET_MANUAL_YAW_SIGN    (+1.0f) // positive ROLL stick -> heading right (pan)
-#define TARGET_MANUAL_PITCH_MIN   0.0f    // stay upright: never past vertical / inverted
-#define TARGET_MANUAL_PITCH_MAX   88.0f
+// Accel limit (deg/s^2) slewed onto the commanded body rate on BOTH paths, so a step in
+// the setpoint (an autonomous q_err jump, or a mode switch) can't jerk the craft and lose
+// the target. At engage rateSpPrev=0 so the onset also ramps from zero (no snap). 0 = off.
+#define TARGET_MAX_ACCEL     1500.0f
+
+// ---- standalone MANUAL mode: RATE-based, ACRO-like (no external app required) ----
+// PITCH stick  = body pitch rate, exactly like ACRO (full freedom, no clamp).
+// ROLL  stick  = rotate the craft about the WORLD-DOWN (gravity / "Z to terrain") axis ->
+//                a pure heading change at ANY attitude, with no bank and no pitch change.
+// YAW   stick  = ignored (no reaction).
+// A gentle wings-level term drives the bank to zero. There is NO attitude setpoint, so
+// engaging never snaps; no Euler yaw is read, so the heading never wanders on its own.
+#define TARGET_MANUAL_PITCH_SIGN   (+1.0f)  // pitch stick sense (matches ACRO/AIR)
+#define TARGET_PAN_SIGN            (+1.0f)  // ROLL stick -> rotate about world-down; flip if reversed
+#define TARGET_LEVEL_GAIN           1.5f    // wings auto-level P gain (1/s); slow; 0 = disable
+#define TARGET_LEVEL_SIGN          (+1.0f)  // sign of the level correction (bench calibrate)
+#define TARGET_MANUAL_RATE_DEADBAND 6.0f    // resting-stick deadband (deg/s) so a ~1501 rest truly holds
 
 static quaternion qSp = QUATERNION_INITIALIZE;
 static float targetGain = 0.0f;
 static timeUs_t lastUpdateUs = 0;
 static float rateSp[XYZ_AXIS_COUNT] = { 0.0f, 0.0f, 0.0f };
 
-// manual-mode integrated attitude setpoint (deg, BF convention) + timing
-static float manPitch = 0.0f, manYaw = 0.0f;
-static bool manInit = false;
-static timeUs_t manLastUs = 0;
+// accel-limit (slew) state, applied to rateSp once per loop on both paths
+static float rateSpPrev[XYZ_AXIS_COUNT] = { 0.0f, 0.0f, 0.0f };
+static timeUs_t slewLastUs = 0;
 
 void targetAttitudeInit(void)
 {
@@ -75,8 +84,8 @@ void targetAttitudeInit(void)
     targetGain = 0.0f;
     lastUpdateUs = 0;
     rateSp[FD_ROLL] = rateSp[FD_PITCH] = rateSp[FD_YAW] = 0.0f;
-    manInit = false;
-    manLastUs = 0;
+    rateSpPrev[FD_ROLL] = rateSpPrev[FD_PITCH] = rateSpPrev[FD_YAW] = 0.0f;
+    slewLastUs = 0;
 }
 
 void targetAttitudeSet(float w, float x, float y, float z, float gain)
@@ -107,41 +116,8 @@ bool targetAttitudeIsFresh(void)
     return cmpTimeUs(micros(), lastUpdateUs) < (timeDelta_t)TARGET_STALE_US;
 }
 
-// Euler (deg, Betaflight convention with -yaw half-angle) -> quaternion, mirroring
-// imu.c::imuComputeQuaternionFromRPY. Used to build the level-bank manual setpoint.
-static void quatFromEulerBF(float rollDeg, float pitchDeg, float yawDeg, quaternion *q)
-{
-    const float r = DEGREES_TO_RADIANS(rollDeg) * 0.5f;
-    const float p = DEGREES_TO_RADIANS(pitchDeg) * 0.5f;
-    const float y = DEGREES_TO_RADIANS(-yawDeg) * 0.5f;
-    const float cr = cos_approx(r), sr = sin_approx(r);
-    const float cp = cos_approx(p), sp = sin_approx(p);
-    const float cy = cos_approx(y), sy = sin_approx(y);
-    q->w = cr * cp * cy + sr * sp * sy;
-    q->x = sr * cp * cy - cr * sp * sy;
-    q->y = cr * sp * cy + sr * cp * sy;
-    q->z = cr * cp * sy - sr * sp * cy;
-}
-
-// Quaternion -> Euler (deg, Betaflight convention), computed directly from q so it
-// is the EXACT inverse of quatFromEulerBF (independent of the SITL rMat override,
-// which only affects the attitude.values used for display/MSP).
-static void bfEulerFromQuat(const quaternion *q, float *rollDeg, float *pitchDeg, float *yawDeg)
-{
-    const float w = q->w, x = q->x, y = q->y, z = q->z;
-    const float r20 = 2.0f * (x * z - w * y);          // rMat[2][0]
-    const float r21 = 2.0f * (y * z + w * x);          // rMat[2][1]
-    const float r22 = 1.0f - 2.0f * (x * x + y * y);   // rMat[2][2]
-    const float r10 = 2.0f * (x * y + w * z);          // rMat[1][0]
-    const float r00 = 1.0f - 2.0f * (y * y + z * z);   // rMat[0][0]
-    float s = -r20;
-    s = constrainf(s, -1.0f, 1.0f);
-    *rollDeg  = RADIANS_TO_DEGREES(atan2_approx(r21, r22));
-    *pitchDeg = RADIANS_TO_DEGREES(asinf(s));
-    *yawDeg   = RADIANS_TO_DEGREES(-atan2_approx(r10, r00));
-}
-
-// q_err = conj(qCur) (x) qSp ; body-rate setpoint = 2*Kp*gain*vec(q_err), clamped.
+// AUTONOMOUS path: q_err = conj(qCur) (x) qSp ; body-rate setpoint = 2*Kp*gain*vec(q_err),
+// clamped. Used when VOT_C is streaming an attitude setpoint (the tracker).
 static void targetComputeRate(const quaternion *qCur, const quaternion *qsp, float gain)
 {
     const float cw =  qCur->w, cx = -qCur->x, cy = -qCur->y, cz = -qCur->z;
@@ -159,52 +135,54 @@ static void targetComputeRate(const quaternion *qCur, const quaternion *qsp, flo
     rateSp[FD_PITCH] = constrainf(RADIANS_TO_DEGREES(k * ey), -TARGET_MAX_RATE_RP,  TARGET_MAX_RATE_RP);
     rateSp[FD_YAW]   = constrainf(RADIANS_TO_DEGREES(k * ez), -TARGET_MAX_RATE_YAW, TARGET_MAX_RATE_YAW);
 
-    DEBUG_SET(DEBUG_ANGLE_TARGET, 0, lrintf(rateSp[FD_ROLL]));
-    DEBUG_SET(DEBUG_ANGLE_TARGET, 1, lrintf(rateSp[FD_PITCH]));
-    DEBUG_SET(DEBUG_ANGLE_TARGET, 2, lrintf(rateSp[FD_YAW]));
-    DEBUG_SET(DEBUG_ANGLE_TARGET, 3, lrintf(gain * 1000.0f));
+    DEBUG_SET(DEBUG_ANGLE_TARGET, 4, lrintf(gain * 1000.0f));  // autonomous gain x1000
+    DEBUG_SET(DEBUG_ANGLE_TARGET, 7, 1000);                    // path marker: autonomous
 }
 
-// Build the manual attitude setpoint from the pilot's sticks: heading and pitch
-// are slewed at the FC's configured stick rates (getSetpointRate), bank forced
-// level (roll = 0). Standalone -- no external app required.
-static void targetBuildManualSetpoint(timeUs_t now, const quaternion *qCur, quaternion *qsp)
+// STANDALONE MANUAL rate law (see the header comment block above). Writes raw body-rate
+// setpoints; targetAttitudeUpdate() then accel-limits them.
+static void targetComputeManualRate(const quaternion *qCur)
 {
-    float roll, pitch, yaw;
-    bfEulerFromQuat(qCur, &roll, &pitch, &yaw);   // override-independent BF euler
-    UNUSED(roll);
+    // world-down (gravity) expressed in the body frame == row 2 of the body->earth rMat.
+    const float w = qCur->w, x = qCur->x, y = qCur->y, z = qCur->z;
+    const float gx = 2.0f * (x * z - w * y);          // rMat[2][0]
+    const float gy = 2.0f * (y * z + w * x);          // rMat[2][1]
+    const float gz = 1.0f - 2.0f * (x * x + y * y);   // rMat[2][2]
 
-    float dt = (manLastUs == 0) ? 0.0f : cmpTimeUs(now, manLastUs) * 1e-6f;
-    manLastUs = now;
-    dt = constrainf(dt, 0.0f, 0.05f);
+    // pilot sticks -> rate (deg/s), deadbanded so a resting (~1501) stick truly holds.
+    float pitchStick = getSetpointRate(FD_PITCH);
+    float panStick   = getSetpointRate(FD_ROLL);   // ROLL stick pans the heading
+    if (fabsf(pitchStick) < TARGET_MANUAL_RATE_DEADBAND) pitchStick = 0.0f;
+    if (fabsf(panStick)   < TARGET_MANUAL_RATE_DEADBAND) panStick   = 0.0f;
+    const float pan = TARGET_PAN_SIGN * panStick;  // deg/s rotation about world-down
 
-    if (!manInit) {
-        manPitch = pitch;
-        manYaw = yaw;
-        manInit = true;
+    // gentle wings-level: drive gravity's body-Y component (gy ~ sin bank) -> 0 about the
+    // axis that changes bank with the LEAST heading change (g x ybody = (-gz,0,gx)), so it
+    // does not fight the pan. Fades out toward 90deg bank (denominator). The slew below
+    // ramps its onset, so engaging while banked eases level instead of jerking.
+    float lvlRoll = 0.0f, lvlYaw = 0.0f;
+    const float lvlDen = gx * gx + gz * gz;        // = 1 - gy^2 ; ->0 only at 90deg bank
+    if (TARGET_LEVEL_GAIN > 0.0f && lvlDen > 0.02f) {
+        const float bankErrDeg = RADIANS_TO_DEGREES(asinf(constrainf(gy, -1.0f, 1.0f)));
+        const float c = TARGET_LEVEL_SIGN * TARGET_LEVEL_GAIN * bankErrDeg / lvlDen;
+        lvlRoll = -c * gz;   // body-X component
+        lvlYaw  =  c * gx;   // body-Z component
     }
 
-    // pilot stick -> angular rate (deg/s) using the FC's own configured rate
-    // profile. ROLL stick pans the heading (at ~80deg pitch a body-roll is a
-    // world-yaw); PITCH stick changes pitch (positive stick = nose down).
-    const float pitchStickRate = getSetpointRate(FD_PITCH);
-    const float rollStickRate  = getSetpointRate(FD_ROLL);
+    // body-rate command: pan about gravity (pan*g) + pitch on body-Y + wings-level. YAW
+    // stick contributes nothing.
+    const float rRoll  = pan * gx + lvlRoll;
+    const float rPitch = pan * gy + TARGET_MANUAL_PITCH_SIGN * pitchStick;
+    const float rYaw   = pan * gz + lvlYaw;
 
-    manPitch -= TARGET_MANUAL_PITCH_SIGN * pitchStickRate * dt;
-    manYaw   += TARGET_MANUAL_YAW_SIGN   * rollStickRate  * dt;
+    rateSp[FD_ROLL]  = constrainf(rRoll,  -TARGET_MAX_RATE_RP,  TARGET_MAX_RATE_RP);
+    rateSp[FD_PITCH] = constrainf(rPitch, -TARGET_MAX_RATE_RP,  TARGET_MAX_RATE_RP);
+    rateSp[FD_YAW]   = constrainf(rYaw,   -TARGET_MAX_RATE_YAW, TARGET_MAX_RATE_YAW);
 
-    // anti-runaway: bound the setpoint lead vs the actual attitude so it can't
-    // outrun the controller and settles fast when the stick is released.
-    manPitch = constrainf(manPitch, pitch - TARGET_MANUAL_LEAD_DEG, pitch + TARGET_MANUAL_LEAD_DEG);
-    float yawErr = manYaw - yaw;
-    while (yawErr >  180.0f) yawErr -= 360.0f;
-    while (yawErr < -180.0f) yawErr += 360.0f;
-    manYaw = yaw + constrainf(yawErr, -TARGET_MANUAL_LEAD_DEG, TARGET_MANUAL_LEAD_DEG);
-
-    // stay upright: never command past vertical or below the min flight pitch.
-    manPitch = constrainf(manPitch, TARGET_MANUAL_PITCH_MIN, TARGET_MANUAL_PITCH_MAX);
-
-    quatFromEulerBF(0.0f, manPitch, manYaw, qsp);   // roll = 0 -> wings level
+    DEBUG_SET(DEBUG_ANGLE_TARGET, 3, lrintf(pan));                                    // pan rate
+    DEBUG_SET(DEBUG_ANGLE_TARGET, 4, lrintf(lvlRoll + lvlYaw));                       // level term
+    DEBUG_SET(DEBUG_ANGLE_TARGET, 5, lrintf(TARGET_MANUAL_PITCH_SIGN * pitchStick));  // pitch stick
+    DEBUG_SET(DEBUG_ANGLE_TARGET, 7, 2000);                                          // path marker: manual
 }
 
 // NOINLINE: this is called once per PID loop (not per gyro sample). Keeping it out
@@ -213,9 +191,9 @@ static void targetBuildManualSetpoint(timeUs_t now, const quaternion *qCur, quat
 NOINLINE void targetAttitudeUpdate(timeUs_t currentTimeUs)
 {
     if (!FLIGHT_MODE(TARGET_MODE)) {
-        manInit = false;
-        manLastUs = 0;
+        slewLastUs = 0;
         rateSp[FD_ROLL] = rateSp[FD_PITCH] = rateSp[FD_YAW] = 0.0f;
+        rateSpPrev[FD_ROLL] = rateSpPrev[FD_PITCH] = rateSpPrev[FD_YAW] = 0.0f;
         return;
     }
 
@@ -224,16 +202,34 @@ NOINLINE void targetAttitudeUpdate(timeUs_t currentTimeUs)
 
     if (targetAttitudeIsFresh()) {
         // External setpoint streamed by VOT_C (autonomous tracker): follow it.
-        manInit = false;
         targetComputeRate(&qCur, &qSp, targetGain);
     } else {
-        // STANDALONE MANUAL: the pilot flies via the sticks (level bank, soft),
-        // no external app needed -- e.g. targeting switch not in the tracking
-        // position, or VOT_C not running.
-        quaternion qspManual;
-        targetBuildManualSetpoint(currentTimeUs, &qCur, &qspManual);
-        targetComputeRate(&qCur, &qspManual, TARGET_MANUAL_GAIN);
+        // STANDALONE MANUAL: the pilot flies via the sticks (ACRO-like rate law).
+        targetComputeManualRate(&qCur);
     }
+
+    const float preRoll = rateSp[FD_ROLL];  // pre-slew, for tuning visibility
+
+    // accel-limit (slew) the commanded rates -- both paths. maxStep = 0 on the first loop
+    // after engage (slewLastUs reset) -> output ramps up from rateSpPrev=0 (no snap); a
+    // step in the setpoint is bounded to TARGET_MAX_ACCEL*dt per loop.
+    float dt = (slewLastUs == 0) ? 0.0f : cmpTimeUs(currentTimeUs, slewLastUs) * 1e-6f;
+    slewLastUs = currentTimeUs;
+    dt = constrainf(dt, 0.0f, 0.05f);
+    if (TARGET_MAX_ACCEL > 0.0f) {
+        const float maxStep = TARGET_MAX_ACCEL * dt;
+        for (int a = FD_ROLL; a <= FD_YAW; a++) {
+            rateSp[a] = rateSpPrev[a] + constrainf(rateSp[a] - rateSpPrev[a], -maxStep, maxStep);
+        }
+    }
+    rateSpPrev[FD_ROLL]  = rateSp[FD_ROLL];
+    rateSpPrev[FD_PITCH] = rateSp[FD_PITCH];
+    rateSpPrev[FD_YAW]   = rateSp[FD_YAW];
+
+    DEBUG_SET(DEBUG_ANGLE_TARGET, 0, lrintf(rateSp[FD_ROLL]));   // commanded rate roll (post-slew)
+    DEBUG_SET(DEBUG_ANGLE_TARGET, 1, lrintf(rateSp[FD_PITCH]));  // commanded rate pitch
+    DEBUG_SET(DEBUG_ANGLE_TARGET, 2, lrintf(rateSp[FD_YAW]));    // commanded rate yaw
+    DEBUG_SET(DEBUG_ANGLE_TARGET, 6, lrintf(preRoll));           // pre-slew roll (see slew effect)
 }
 
 float targetAttitudeRateSetpoint(int axis)
