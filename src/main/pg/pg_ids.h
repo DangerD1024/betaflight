@@ -156,7 +156,8 @@
 #define PG_SCHEDULER_CONFIG         556
 #define PG_MSP_CONFIG               557
 #define PG_SOFTSERIAL_PIN_CONFIG    558
-#define PG_BETAFLIGHT_END           558
+#define PG_TARGET_ATTITUDE_CONFIG   559   // VOT_C interceptor TARGET_MODE tunables (CLI-settable)
+#define PG_BETAFLIGHT_END           559
 
 
 // OSD configuration (subject to change)

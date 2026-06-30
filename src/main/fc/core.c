@@ -1008,7 +1008,14 @@ void processRxModes(timeUs_t currentTimeUs)
     // Source is chosen inside the controller: a fresh setpoint streamed over MSP by
     // the interceptor app (autonomous tracker) drives it; otherwise it falls back to
     // STANDALONE MANUAL (the pilot flies via the sticks, level-bank).
+#ifdef SIMULATOR_BUILD
+    // SITL: attitude comes straight from the FDM quaternion (getQuaternion), so the
+    // controller works without a physical ACC -- and the sim arms cleanly only with
+    // acc_hardware=NONE. Drop the ACC requirement in simulation only.
+    if (IS_RC_MODE_ACTIVE(BOXTARGET)) {
+#else
     if (IS_RC_MODE_ACTIVE(BOXTARGET) && sensors(SENSOR_ACC)) {
+#endif
         if (!FLIGHT_MODE(TARGET_MODE)) {
             ENABLE_FLIGHT_MODE(TARGET_MODE);
         }
