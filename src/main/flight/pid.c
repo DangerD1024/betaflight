@@ -1022,7 +1022,11 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
         float pidSetpointDelta = 0;
 
 #ifdef USE_FEEDFORWARD
-        if (FLIGHT_MODE(ANGLE_MODE) && pidRuntime.axisInAngleMode[axis]) {
+        // TARGET_MODE: the setpoint comes from the quaternion attitude law, not the
+        // sticks -- rc-derived feedforward would inject stick/MSP-override channel
+        // steps (e.g. VOT_C's fallback RC stream) straight into the motors as torque
+        // kicks that bypass the attitude law. Zero it, like the angle-mode axes.
+        if ((FLIGHT_MODE(ANGLE_MODE) && pidRuntime.axisInAngleMode[axis]) || targetModeActive) {
             // this axis is fully under self-levelling control
             // it will already have stick based feedforward applied in the input to their angle setpoint
             // a simple setpoint Delta can be used to for PID feedforward element for motor lag on these axes

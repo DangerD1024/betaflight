@@ -40,7 +40,10 @@
 // Drop the external (VOT_C) setpoint if nothing arrived within this window; the
 // app streams at ~30 ms. When stale, the mode falls back to STANDALONE MANUAL
 // (the pilot flies via the sticks) -- it does NOT need the app to be running.
-#define TARGET_STALE_US      200000
+// 350 ms (was 200): flight 2026-07-02 13:32 showed the FC flip-flopping to manual
+// mid-chase from MSP delivery hiccups while VOT_C was streaming every frame --
+// the wider window bridges link stalls; a real app death still falls back <0.4 s.
+#define TARGET_STALE_US      350000
 
 // All other tunables live in targetAttitudeConfig (CLI-settable: `set target_*`), so the
 // rate law / autonomous loop can be tuned from real flights without a reflash. Defaults
