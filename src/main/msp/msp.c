@@ -2696,8 +2696,12 @@ static mspResult_e mspProcessInCommand(mspDescriptor_t srcDesc, int16_t cmdMSP, 
         break;
 
     case MSP_SET_TARGET_ATTITUDE:
-        // TARGET_MODE desired attitude quaternion (body->earth) + gain.
-        // 10 bytes LE: int16 qw,qx,qy,qz (x16384), int16 gain (x10000).
+    case MSP_SET_TARGET_CORRECTION:
+        // TARGET_MODE setpoint, 10 bytes LE: int16 qw,qx,qy,qz (x16384), int16 gain
+        // (x10000). 229 = absolute attitude quaternion (body->earth, legacy).
+        // 231 = BODY-FRAME correction quaternion: q_sp is composed here against the
+        // FC's own current attitude, so the app never round-trips our attitude
+        // (kills the stale/quantized MSP_ATTITUDE echo jitter).
         if (dataSize < 10) {
             return MSP_RESULT_ERROR;
         }
@@ -2708,7 +2712,11 @@ static mspResult_e mspProcessInCommand(mspDescriptor_t srcDesc, int16_t cmdMSP, 
             const float y = (int16_t)sbufReadU16(src) * qs;
             const float z = (int16_t)sbufReadU16(src) * qs;
             const float gain = (int16_t)sbufReadU16(src) / 10000.0f;
-            targetAttitudeSet(w, x, y, z, gain);
+            if (cmdMSP == MSP_SET_TARGET_CORRECTION) {
+                targetAttitudeSetCorrection(w, x, y, z, gain);
+            } else {
+                targetAttitudeSet(w, x, y, z, gain);
+            }
         }
         break;
 #if defined(USE_ACC)

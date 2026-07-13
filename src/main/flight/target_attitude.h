@@ -60,6 +60,14 @@ void targetAttitudeInit(void);
 // Called from the MSP task; stamps the receipt time for the freshness failsafe.
 void targetAttitudeSet(float w, float x, float y, float z, float gain);
 
+// Store a new BODY-FRAME correction quaternion (w,x,y,z) and gain [0..1]: the
+// absolute setpoint is composed HERE as q_sp = q_cur (x) q_corr against the FC's
+// own current attitude at receipt (MSP_SET_TARGET_CORRECTION). Preferred over
+// targetAttitudeSet: the app-side absolute q_sp was anchored to the MSP_ATTITUDE
+// Euler echo (~100 ms stale, 0.1 deg roll/pitch + 1 deg yaw quantization), which
+// re-entered q_err as setpoint jitter and rate-command spikes every frame.
+void targetAttitudeSetCorrection(float w, float x, float y, float z, float gain);
+
 // True while a setpoint has arrived within TARGET_STALE_US. Gates mode activation
 // (core.c) and setpoint injection (pid.c): if the app stops streaming, the mode
 // drops and the FC reverts to its other active modes.

@@ -105,6 +105,33 @@ void targetAttitudeSet(float w, float x, float y, float z, float gain)
     lastUpdateUs = micros();
 }
 
+void targetAttitudeSetCorrection(float w, float x, float y, float z, float gain)
+{
+    // Defensive normalize (fixed-point wire format), as in targetAttitudeSet().
+    const float n2 = w * w + x * x + y * y + z * z;
+    if (n2 < 1e-9f) {
+        return; // ignore degenerate payloads, keep last good setpoint
+    }
+    const float inv = 1.0f / sqrtf(n2);
+    w *= inv; x *= inv; y *= inv; z *= inv;
+
+    // Compose the absolute setpoint against OUR current attitude: q_sp = q_cur (x) q_corr
+    // (Hamilton product, q_corr in body axes). Between updates the stored q_sp still
+    // holds an absolute attitude, so the hold-on-coast behavior matches the legacy
+    // absolute-setpoint path. Cooperative scheduler: the MSP task never interleaves
+    // with targetAttitudeUpdate() (gyro/PID task), so reading getQuaternion() and
+    // writing qSp here needs no locking.
+    quaternion qCur;
+    getQuaternion(&qCur);
+    qSp.w = qCur.w * w - qCur.x * x - qCur.y * y - qCur.z * z;
+    qSp.x = qCur.w * x + qCur.x * w + qCur.y * z - qCur.z * y;
+    qSp.y = qCur.w * y - qCur.x * z + qCur.y * w + qCur.z * x;
+    qSp.z = qCur.w * z + qCur.x * y - qCur.y * x + qCur.z * w;
+
+    targetGain = constrainf(gain, 0.0f, 1.0f);
+    lastUpdateUs = micros();
+}
+
 bool targetAttitudeIsFresh(void)
 {
     if (lastUpdateUs == 0) {
