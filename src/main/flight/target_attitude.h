@@ -37,9 +37,14 @@
 #include "pg/pg.h"
 #include "pg/pg_ids.h"
 
+// Which stick pans the heading in STANDALONE MANUAL (the other one is ignored).
+typedef enum {
+    TARGET_ROTATION_ROLL = 0,
+    TARGET_ROTATION_YAW,
+} targetRotation_e;
+
 // CLI-settable TARGET_MODE tunables, so the rate law / autonomous loop can be tuned
-// from real flights with `set ...; save` (no reflash). Gains stored x10. Signs are
-// OFF/ON invert flags.
+// from real flights with `set ...; save` (no reflash). Gains stored x10.
 typedef struct targetAttitudeConfig_s {
     uint16_t att_kp;        // x10: AUTONOMOUS attitude P gain (80 = 8.0)
     uint16_t max_accel;     // deg/s^2: rate-slew accel limit (0 = off)
@@ -47,9 +52,7 @@ typedef struct targetAttitudeConfig_s {
     uint16_t max_rate_yaw;  // deg/s: yaw body-rate clamp
     uint16_t level_gain;    // x10: manual wings-level P gain (15 = 1.5; 0 = off)
     uint8_t  rate_deadband; // deg/s: manual resting-stick deadband
-    uint8_t  pan_invert;    // OFF/ON: invert ROLL-stick pan direction
-    uint8_t  level_invert;  // OFF/ON: invert wings-level direction
-    uint8_t  pitch_invert;  // OFF/ON: invert PITCH-stick direction
+    uint8_t  rotation;      // targetRotation_e: ROLL or YAW stick pans the heading
 } targetAttitudeConfig_t;
 
 PG_DECLARE(targetAttitudeConfig_t, targetAttitudeConfig);

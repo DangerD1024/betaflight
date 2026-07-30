@@ -49,10 +49,11 @@
 // rate law / autonomous loop can be tuned from real flights without a reflash. Defaults
 // below match the original compile-time constants. Gains are stored x10.
 //   AUTONOMOUS attitude P gain: body rate = 2 * (att_kp/10) * gain * q_err_vec.
-//   MANUAL rate law: PITCH stick = body pitch rate (ACRO); ROLL stick = rotate about
-//   WORLD-DOWN (gravity) -> pure heading pan, no bank/pitch change; YAW ignored; gentle
-//   wings-level (level_gain/10). No attitude setpoint -> no engage snap; no Euler yaw.
-PG_REGISTER_WITH_RESET_TEMPLATE(targetAttitudeConfig_t, targetAttitudeConfig, PG_TARGET_ATTITUDE_CONFIG, 0);
+//   MANUAL rate law: PITCH stick = body pitch rate (ACRO); the pan stick (ROLL or YAW,
+//   `target_rotation`) = rotate about WORLD-DOWN (gravity) -> pure heading pan, no
+//   bank/pitch change; the other of ROLL/YAW is ignored; gentle wings-level
+//   (level_gain/10). No attitude setpoint -> no engage snap; no Euler yaw.
+PG_REGISTER_WITH_RESET_TEMPLATE(targetAttitudeConfig_t, targetAttitudeConfig, PG_TARGET_ATTITUDE_CONFIG, 1);
 PG_RESET_TEMPLATE(targetAttitudeConfig_t, targetAttitudeConfig,
     .att_kp        = 80,    // 8.0
     .max_accel     = 1500,  // deg/s^2
@@ -60,9 +61,7 @@ PG_RESET_TEMPLATE(targetAttitudeConfig_t, targetAttitudeConfig,
     .max_rate_yaw  = 180,   // deg/s
     .level_gain    = 15,    // 1.5
     .rate_deadband = 6,     // deg/s
-    .pan_invert    = 0,
-    .level_invert  = 0,
-    .pitch_invert  = 0,
+    .rotation      = TARGET_ROTATION_ROLL,
 );
 
 static quaternion qSp = QUATERNION_INITIALIZE;
@@ -178,23 +177,21 @@ static void targetComputeManualRate(const quaternion *qCur)
 
     // CLI-settable tunables (see targetAttitudeConfig: `set target_*`).
     const float deadband  = targetAttitudeConfig()->rate_deadband;
-    const float panSign   = targetAttitudeConfig()->pan_invert   ? -1.0f : 1.0f;
-    const float levelSign = targetAttitudeConfig()->level_invert ? -1.0f : 1.0f;
-    const float pitchSign = targetAttitudeConfig()->pitch_invert ? -1.0f : 1.0f;
     const float levelGain = targetAttitudeConfig()->level_gain * 0.1f;
     const float maxRP = targetAttitudeConfig()->max_rate_rp, maxYaw = targetAttitudeConfig()->max_rate_yaw;
+    // `target_rotation` picks which stick pans the heading; the other is ignored.
+    const int panAxis = (targetAttitudeConfig()->rotation == TARGET_ROTATION_YAW) ? FD_YAW : FD_ROLL;
 
     // pilot sticks -> rate (deg/s), deadbanded so a resting (~1501) stick truly holds.
     float pitchStick = getSetpointRate(FD_PITCH);
-    float panStick   = getSetpointRate(FD_ROLL);   // ROLL stick pans the heading
+    float panStick   = getSetpointRate(panAxis);
     if (fabsf(pitchStick) < deadband) pitchStick = 0.0f;
     if (fabsf(panStick)   < deadband) panStick   = 0.0f;
-    // roll stick RIGHT must rotate the craft RIGHT (CW seen from above). On the real
-    // airframe the world-down pan came out mirrored, so the base sign is negated here;
-    // pan_invert (CLI) still flips it for a different mount (default 0 = this corrected
-    // sense). NOTE: the AUTONOMOUS/VOT_C path (targetComputeRate, q_err) does NOT use
-    // this, so VOT_C control is unaffected by this sign.
-    const float pan = -panSign * panStick;  // deg/s rotation about world-down (roll-right = right)
+    // pan stick RIGHT must rotate the craft RIGHT (CW seen from above). On the real
+    // airframe the world-down pan came out mirrored, so the sign is negated here.
+    // NOTE: the AUTONOMOUS/VOT_C path (targetComputeRate, q_err) does NOT use this,
+    // so VOT_C control is unaffected by this sign.
+    const float pan = -panStick;  // deg/s rotation about world-down (stick-right = right)
 
     // gentle wings-level: drive gravity's body-Y component (gy ~ sin bank) -> 0 about the
     // axis that changes bank with the LEAST heading change (g x ybody = (-gz,0,gx)), so it
@@ -204,15 +201,15 @@ static void targetComputeManualRate(const quaternion *qCur)
     const float lvlDen = gx * gx + gz * gz;        // = 1 - gy^2 ; ->0 only at 90deg bank
     if (levelGain > 0.0f && lvlDen > 0.02f) {
         const float bankErrDeg = RADIANS_TO_DEGREES(asinf(constrainf(gy, -1.0f, 1.0f)));
-        const float c = levelSign * levelGain * bankErrDeg / lvlDen;
+        const float c = levelGain * bankErrDeg / lvlDen;
         lvlRoll = -c * gz;   // body-X component
         lvlYaw  =  c * gx;   // body-Z component
     }
 
-    // body-rate command: pan about gravity (pan*g) + pitch on body-Y + wings-level. YAW
-    // stick contributes nothing.
+    // body-rate command: pan about gravity (pan*g) + pitch on body-Y + wings-level.
+    // The non-pan stick of ROLL/YAW contributes nothing.
     const float rRoll  = pan * gx + lvlRoll;
-    const float rPitch = pan * gy + pitchSign * pitchStick;
+    const float rPitch = pan * gy + pitchStick;
     const float rYaw   = pan * gz + lvlYaw;
 
     rateSp[FD_ROLL]  = constrainf(rRoll,  -maxRP,  maxRP);

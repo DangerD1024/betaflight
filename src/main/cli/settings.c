@@ -530,6 +530,11 @@ static const char* const lookupTableSwitchMode[] = {
 };
 #endif
 
+// targetRotation_e (flight/target_attitude.h)
+static const char* const lookupTableTargetRotation[] = {
+    "ROLL", "YAW",
+};
+
 #define LOOKUP_TABLE_ENTRY(name) { name, ARRAYLEN(name) }
 
 const lookupTableEntry_t lookupTables[] = {
@@ -655,6 +660,7 @@ const lookupTableEntry_t lookupTables[] = {
     LOOKUP_TABLE_ENTRY(lookupTableFreqDomain),
     LOOKUP_TABLE_ENTRY(lookupTableSwitchMode),
 #endif
+    LOOKUP_TABLE_ENTRY(lookupTableTargetRotation),
 };
 
 #undef LOOKUP_TABLE_ENTRY
@@ -1019,9 +1025,7 @@ const clivalue_t valueTable[] = {
     { "target_max_rate_yaw",  VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 10, 1000 }, PG_TARGET_ATTITUDE_CONFIG, offsetof(targetAttitudeConfig_t, max_rate_yaw) },
     { "target_level_gain",    VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 0,  200 },  PG_TARGET_ATTITUDE_CONFIG, offsetof(targetAttitudeConfig_t, level_gain) },
     { "target_rate_deadband", VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 0,   50 },  PG_TARGET_ATTITUDE_CONFIG, offsetof(targetAttitudeConfig_t, rate_deadband) },
-    { "target_pan_invert",    VAR_UINT8  | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_OFF_ON }, PG_TARGET_ATTITUDE_CONFIG, offsetof(targetAttitudeConfig_t, pan_invert) },
-    { "target_level_invert",  VAR_UINT8  | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_OFF_ON }, PG_TARGET_ATTITUDE_CONFIG, offsetof(targetAttitudeConfig_t, level_invert) },
-    { "target_pitch_invert",  VAR_UINT8  | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_OFF_ON }, PG_TARGET_ATTITUDE_CONFIG, offsetof(targetAttitudeConfig_t, pitch_invert) },
+    { "target_rotation",      VAR_UINT8  | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_TARGET_ROTATION }, PG_TARGET_ATTITUDE_CONFIG, offsetof(targetAttitudeConfig_t, rotation) },
 
 // PG_ARMING_CONFIG
     { "auto_disarm_delay",          VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 0, 60 }, PG_ARMING_CONFIG, offsetof(armingConfig_t, auto_disarm_delay) },
