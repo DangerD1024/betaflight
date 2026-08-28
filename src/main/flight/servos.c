@@ -46,6 +46,7 @@
 #include "flight/mixer.h"
 #include "flight/pid.h"
 #include "flight/servos.h"
+#include "flight/target_attitude.h"
 
 #include "io/gimbal.h"
 
@@ -334,6 +335,19 @@ void writeServos(void)
 {
     servoTable();
     filterServos();
+
+    // TARGET_MODE camera nudge, applied after the mixer clamp so it can reach PAST the
+    // configured servo limits: `servo <n> <min> <max>` bounds what the PILOT can command,
+    // and targeting is allowed beyond that by exactly the correction. servo[] is already
+    // clamped to [min, max] here, so the result lands in [min + c, max + c] and only the
+    // absolute PWM limits still apply. Deliberately downstream of the servo lowpass too --
+    // the target_servo_speed ramp is already the intended trajectory, filtering would only
+    // lag it. Called unconditionally: the ramp has to advance even while the offset is 0.
+    const int16_t targetServoOffset = targetServoOffsetUpdate();
+    const uint8_t targetServoIndex = targetAttitudeConfig()->servo_index;
+    if (targetServoOffset != 0 && targetServoIndex < MAX_SUPPORTED_SERVOS) {
+        servo[targetServoIndex] = constrain(servo[targetServoIndex] + targetServoOffset, PWM_SERVO_MIN, PWM_SERVO_MAX);
+    }
 
     uint8_t servoIndex = 0;
     switch (getMixerMode()) {

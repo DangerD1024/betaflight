@@ -1026,6 +1026,12 @@ const clivalue_t valueTable[] = {
     { "target_level_gain",    VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 0,  200 },  PG_TARGET_ATTITUDE_CONFIG, offsetof(targetAttitudeConfig_t, level_gain) },
     { "target_rate_deadband", VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 0,   50 },  PG_TARGET_ATTITUDE_CONFIG, offsetof(targetAttitudeConfig_t, rate_deadband) },
     { "target_rotation",      VAR_UINT8  | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_TARGET_ROTATION }, PG_TARGET_ATTITUDE_CONFIG, offsetof(targetAttitudeConfig_t, rotation) },
+    // camera-servo nudge while TARGET + MSP OVERRIDE are both on (correction 0 = off)
+#ifdef USE_SERVOS
+    { "target_servo",            VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 0, MAX_SUPPORTED_SERVOS - 1 }, PG_TARGET_ATTITUDE_CONFIG, offsetof(targetAttitudeConfig_t, servo_index) },
+    { "target_servo_correction", VAR_INT16  | MASTER_VALUE, .config.minmax = { -1000, 1000 },                         PG_TARGET_ATTITUDE_CONFIG, offsetof(targetAttitudeConfig_t, servo_correction) },
+    { "target_servo_speed",      VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 10000 },                    PG_TARGET_ATTITUDE_CONFIG, offsetof(targetAttitudeConfig_t, servo_speed) },
+#endif
 
 // PG_ARMING_CONFIG
     { "auto_disarm_delay",          VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 0, 60 }, PG_ARMING_CONFIG, offsetof(armingConfig_t, auto_disarm_delay) },

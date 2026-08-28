@@ -53,6 +53,13 @@ typedef struct targetAttitudeConfig_s {
     uint16_t level_gain;    // x10: manual wings-level P gain (15 = 1.5; 0 = off)
     uint8_t  rate_deadband; // deg/s: manual resting-stick deadband
     uint8_t  rotation;      // targetRotation_e: ROLL or YAW stick pans the heading
+    // Camera-servo nudge while TARGET + MSP OVERRIDE are both on. New fields must be
+    // APPENDED here: pgLoad() copies MIN(storedSize, pgSize) over the reset template, so
+    // appending keeps a pilot's tuned target_* values across a flash. Reordering or
+    // removing a field needs a PG version bump instead.
+    int16_t  servo_correction; // us added to servo_index while both modes are on (0 = off)
+    uint16_t servo_speed;      // ms for the correction to ramp fully in/out (0 = instant)
+    uint8_t  servo_index;      // servo output to nudge; same 0-based index as CLI `servo <n> ...`
 } targetAttitudeConfig_t;
 
 PG_DECLARE(targetAttitudeConfig_t, targetAttitudeConfig);
@@ -82,3 +89,8 @@ void targetAttitudeUpdate(timeUs_t currentTimeUs);
 
 // Body-rate setpoint (deg/s) for one axis (FD_ROLL/FD_PITCH/FD_YAW).
 float targetAttitudeRateSetpoint(int axis);
+
+// Advance the camera-servo correction ramp one loop and return the offset (us) to add to
+// servo servo_index. Call exactly once per loop -- the ramp rate depends on the interval
+// between calls. Returns 0 whenever the correction is off or both modes are not engaged.
+int16_t targetServoOffsetUpdate(void);

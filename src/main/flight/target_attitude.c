@@ -31,6 +31,7 @@
 #include "drivers/time.h"
 
 #include "fc/rc.h"
+#include "fc/rc_modes.h"
 #include "fc/runtime_config.h"
 
 #include "flight/imu.h"
@@ -62,6 +63,9 @@ PG_RESET_TEMPLATE(targetAttitudeConfig_t, targetAttitudeConfig,
     .level_gain    = 15,    // 1.5
     .rate_deadband = 6,     // deg/s
     .rotation      = TARGET_ROTATION_ROLL,
+    .servo_correction = 0,   // us, off until the pilot sets it
+    .servo_speed      = 500, // ms
+    .servo_index      = 0,   // SERVO_GIMBAL_PITCH
 );
 
 static quaternion qSp = QUATERNION_INITIALIZE;
@@ -273,4 +277,42 @@ NOINLINE void targetAttitudeUpdate(timeUs_t currentTimeUs)
 float targetAttitudeRateSetpoint(int axis)
 {
     return rateSp[axis];
+}
+
+// Camera-servo nudge state. The offset eases in over target_servo_speed instead of
+// stepping, so engaging targeting doesn't snap the gimbal (and with it the image, and on
+// a heavy camera the airframe). Symmetric on the way out.
+static float servoOffset = 0.0f;
+static timeUs_t servoOffsetLastUs = 0;
+
+// NOINLINE for the same reason as targetAttitudeUpdate above: the caller chain
+// (writeServos <- subTaskMotorUpdate) ends in FAST_CODE, so without this LTO pulls the
+// body into ITCM and overflows the F7's 16 KB. It runs once per loop, so the call
+// overhead is irrelevant.
+NOINLINE int16_t targetServoOffsetUpdate(void)
+{
+    const int16_t correction = targetAttitudeConfig()->servo_correction;
+    // Both switches, matching how the pilot hands the interceptor to VOT_C. MSP OVERRIDE
+    // has no FLIGHT_MODE bit, so it has to be read as an RC mode. No arming gate -- same
+    // as TARGET_MODE itself, which also lets this be checked on the bench.
+    const bool engaged = FLIGHT_MODE(TARGET_MODE) && IS_RC_MODE_ACTIVE(BOXMSPOVERRIDE);
+    const float goal = (engaged && correction != 0) ? (float)correction : 0.0f;
+
+    const timeUs_t nowUs = micros();
+    // dt = 0 on the first call (no jump from a stale timestamp); clamped so a scheduler
+    // stall can't turn into one big step either.
+    float dt = (servoOffsetLastUs == 0) ? 0.0f : cmpTimeUs(nowUs, servoOffsetLastUs) * 1e-6f;
+    servoOffsetLastUs = nowUs;
+    dt = constrainf(dt, 0.0f, 0.05f);
+
+    const uint16_t rampMs = targetAttitudeConfig()->servo_speed;
+    if (rampMs == 0 || correction == 0) {
+        servoOffset = goal;
+    } else {
+        // the FULL correction spans rampMs, so the rate doesn't depend on where we are now
+        const float step = (ABS(correction) * 1000.0f / rampMs) * dt;
+        servoOffset += constrainf(goal - servoOffset, -step, step);
+    }
+
+    return lrintf(servoOffset);
 }
