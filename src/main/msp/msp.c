@@ -1332,6 +1332,26 @@ case MSP_NAME:
         sbufWriteU16(dst, DECIDEGREES_TO_DEGREES(attitude.values.yaw));
         break;
 
+    case MSP_TARGET_INFO:
+        // Capability query. The app refuses to run its targeting loop unless this
+        // answers with the correction bit set: firmware that does not is firmware
+        // that cannot accept our setpoints, and silently discovering that in the air
+        // is what put the 2026-09-07 flight on the manual stick law for its whole
+        // engagement. Failing at startup is the entire point of the command.
+        sbufWriteU8(dst, TARGET_INFO_PROTOCOL_VERSION);
+        // Byte 1 was protocol v1's configured-mode field. Held at 0 so a v1 app
+        // parses the payload without misreading the fields that follow it.
+        sbufWriteU8(dst, 0);
+        // Bitmask of the setpoint commands this build implements: bit0 was the
+        // retired absolute 229 and now reads 0, bit1 CORRECTION/231. (bit2 is
+        // reserved for the deg/s RATE contract on 232.)
+        sbufWriteU16(dst, MSP_TARGET_SUPPORTS_CORRECTION);
+        // The attitude P gain the app needs to convert a desired rate into the
+        // command the contract expects. Sent so it cannot drift out of sync with
+        // the app's compiled-in copy.
+        sbufWriteU16(dst, targetAttitudeConfig()->att_kp);
+        break;
+
     case MSP_ALTITUDE:
         sbufWriteU32(dst, getEstimatedAltitudeCm());
 #ifdef USE_VARIO
@@ -2696,12 +2716,23 @@ static mspResult_e mspProcessInCommand(mspDescriptor_t srcDesc, int16_t cmdMSP, 
         break;
 
     case MSP_SET_TARGET_ATTITUDE:
+        // RETIRED. 229 carried an ABSOLUTE attitude quaternion; this aircraft now
+        // speaks only the body-frame correction below. Kept as an explicit refusal
+        // rather than deleted so an old app fails with an error it can see, instead
+        // of an "unknown command" that looks exactly like a dropped packet.
+        //
+        // Record it before refusing: an app still sending 229 is an OLD app paired
+        // with this firmware, and debug[7] reports that as 2200 so the pairing is
+        // diagnosable from a log instead of by elimination.
+        targetAttitudeNoteRetiredCommand();
+        return MSP_RESULT_ERROR;
+
     case MSP_SET_TARGET_CORRECTION:
         // TARGET_MODE setpoint, 10 bytes LE: int16 qw,qx,qy,qz (x16384), int16 gain
-        // (x10000). 229 = absolute attitude quaternion (body->earth, legacy).
-        // 231 = BODY-FRAME correction quaternion: q_sp is composed here against the
-        // FC's own current attitude, so the app never round-trips our attitude
-        // (kills the stale/quantized MSP_ATTITUDE echo jitter).
+        // (x10000). BODY-FRAME correction quaternion: q_sp is composed here against
+        // the FC's own current attitude, so the app never round-trips our attitude
+        // (kills the stale/quantized MSP_ATTITUDE echo jitter). This is the ONLY
+        // setpoint contract -- see target_attitude.h on why having two was the bug.
         if (dataSize < 10) {
             return MSP_RESULT_ERROR;
         }
@@ -2712,11 +2743,7 @@ static mspResult_e mspProcessInCommand(mspDescriptor_t srcDesc, int16_t cmdMSP, 
             const float y = (int16_t)sbufReadU16(src) * qs;
             const float z = (int16_t)sbufReadU16(src) * qs;
             const float gain = (int16_t)sbufReadU16(src) / 10000.0f;
-            if (cmdMSP == MSP_SET_TARGET_CORRECTION) {
-                targetAttitudeSetCorrection(w, x, y, z, gain);
-            } else {
-                targetAttitudeSet(w, x, y, z, gain);
-            }
+            targetAttitudeSetCorrection(w, x, y, z, gain);
         }
         break;
 #if defined(USE_ACC)

@@ -45,6 +45,21 @@ typedef enum {
 
 // CLI-settable TARGET_MODE tunables, so the rate law / autonomous loop can be tuned
 // from real flights with `set ...; save` (no reflash). Gains stored x10.
+// There is exactly ONE setpoint contract: MSP_SET_TARGET_CORRECTION (231), a
+// body-frame correction quaternion that the FC composes against its own current
+// attitude. The absolute-attitude command (229) is RETIRED.
+//
+// It used to be selectable per airframe, which is what made the 2026-09-07 flight
+// fly its whole engagement on the manual stick law: the FC and the app disagreed
+// about which command to speak, the FC refused every packet, and because the app
+// streams fire-and-forget neither side could see it. Two contracts meant two things
+// that could disagree; one contract removes the failure rather than detecting it.
+//
+// Reported to the app by MSP_TARGET_INFO so a mismatched pairing fails loudly at
+// startup instead of at 100 m. Bumped when the wire format or the supported set
+// changes: v1 offered 229/231 selectably, v2 is correction-only.
+#define TARGET_INFO_PROTOCOL_VERSION 2
+
 typedef struct targetAttitudeConfig_s {
     uint16_t att_kp;        // x10: AUTONOMOUS attitude P gain (80 = 8.0)
     uint16_t max_accel;     // deg/s^2: rate-slew accel limit (0 = off)
@@ -64,7 +79,16 @@ typedef struct targetAttitudeConfig_s {
 
 PG_DECLARE(targetAttitudeConfig_t, targetAttitudeConfig);
 
+// Called by msp.c when the RETIRED absolute-attitude command (229) arrives. The FC
+// refuses the packet, but the fact that something is still SENDING it is the single
+// most useful thing we can know: it means an old app is paired with this firmware and
+// is talking to us in a dialect we no longer answer. Without this the symptom is
+// indistinguishable from an app that is not running at all -- both show "no setpoint
+// has ever arrived" -- and on 2026-09-07 telling those apart cost two flights.
+void targetAttitudeNoteRetiredCommand(void);
+
 void targetAttitudeInit(void);
+
 
 // Store a new desired attitude quaternion (w,x,y,z, body->earth) and gain [0..1].
 // Called from the MSP task; stamps the receipt time for the freshness failsafe.

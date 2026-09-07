@@ -68,6 +68,14 @@ PG_RESET_TEMPLATE(targetAttitudeConfig_t, targetAttitudeConfig,
     .servo_index      = 0,   // SERVO_GIMBAL_PITCH
 );
 
+// Set once if the retired 229 command is ever received; see the path marker below.
+static bool retiredCmdSeen = false;
+
+void targetAttitudeNoteRetiredCommand(void)
+{
+    retiredCmdSeen = true;
+}
+
 static quaternion qSp = QUATERNION_INITIALIZE;
 static float targetGain = 0.0f;
 static timeUs_t lastUpdateUs = 0;
@@ -165,7 +173,8 @@ static void targetComputeRate(const quaternion *qCur, const quaternion *qsp, flo
 
     DEBUG_SET(DEBUG_ANGLE_TARGET, 3, lrintf(gain * 1000.0f));  // gain x1000 (== rc_log fc_tgt_gain)
     DEBUG_SET(DEBUG_ANGLE_TARGET, 4, 0);
-    DEBUG_SET(DEBUG_ANGLE_TARGET, 5, 0);
+    // Slot 5 belongs to the FC clock (written once per loop in targetAttitudeUpdate),
+    // NOT to this path: it aligns the Pi's rc_log with the blackbox timeline.
     DEBUG_SET(DEBUG_ANGLE_TARGET, 7, 1000);                    // path marker: autonomous
 }
 
@@ -222,8 +231,23 @@ static void targetComputeManualRate(const quaternion *qCur)
 
     DEBUG_SET(DEBUG_ANGLE_TARGET, 3, 1000);                      // "gain"=full (manual); == rc_log fc_tgt_gain
     DEBUG_SET(DEBUG_ANGLE_TARGET, 4, lrintf(pan));              // pan rate
-    DEBUG_SET(DEBUG_ANGLE_TARGET, 5, lrintf(lvlRoll + lvlYaw)); // wings-level term
-    DEBUG_SET(DEBUG_ANGLE_TARGET, 7, 2000);                     // path marker: manual
+    // Slot 5 used to carry the wings-level term (lvlRoll + lvlYaw). It now belongs to
+    // the FC clock (written once per loop in targetAttitudeUpdate) — aligning the Pi's
+    // rc_log with the blackbox proved worth more than this tuning visibility: the
+    // 22 s manual-fallback event could not even be SEGMENTED between the two logs.
+    // Path marker -- which manual-fallback story this is:
+    //   2000  a setpoint DID arrive and has since gone stale (dropout, track released)
+    //   2100  none has EVER arrived: nothing is talking to us on any port
+    //   2200  none has arrived, but the RETIRED 229 command HAS been received, i.e.
+    //         something IS talking and is speaking the dialect we no longer answer.
+    //         That is version skew -- an old app against this firmware -- and it is
+    //         otherwise indistinguishable from 2100 while having a completely
+    //         different fix. Both 2026-09-07 bench runs were really this case.
+    int16_t marker = 2000;
+    if (lastUpdateUs == 0) {
+        marker = retiredCmdSeen ? 2200 : 2100;
+    }
+    DEBUG_SET(DEBUG_ANGLE_TARGET, 7, marker);
 }
 
 // NOINLINE: this is called once per PID loop (not per gyro sample). Keeping it out
@@ -271,6 +295,13 @@ NOINLINE void targetAttitudeUpdate(timeUs_t currentTimeUs)
     DEBUG_SET(DEBUG_ANGLE_TARGET, 0, lrintf(rateSp[FD_ROLL]));   // commanded rate roll (post-slew)
     DEBUG_SET(DEBUG_ANGLE_TARGET, 1, lrintf(rateSp[FD_PITCH]));  // commanded rate pitch
     DEBUG_SET(DEBUG_ANGLE_TARGET, 2, lrintf(rateSp[FD_YAW]));    // commanded rate yaw
+    // FC clock, for both paths: millis()/8 in the low 16 bits (8 ms tick, ~6 days
+    // before wrap). The Pi reads it over MSP_DEBUG and x8s it back into milliseconds
+    // (rc_log column fc_ms) — the only anchor between the Pi's clock and the FC's,
+    // which blackbox_decode cannot provide (the two processes never shared a
+    // timebase). Sent as int16, so values above 32767 arrive negative on the wire;
+    // the Pi masks back to uint16 before scaling.
+    DEBUG_SET(DEBUG_ANGLE_TARGET, 5, (millis() >> 3) & 0xFFFF);
     DEBUG_SET(DEBUG_ANGLE_TARGET, 6, lrintf(preRoll));           // pre-slew roll (see slew effect)
 }
 

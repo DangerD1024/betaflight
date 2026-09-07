@@ -69,7 +69,14 @@ const char *   vtxTableBandNames[VTX_TABLE_MAX_BANDS + 1] = {
         "FATSHARK",
         "RACEBAND",
 };
-char           vtxTableBandLetters[VTX_TABLE_MAX_BANDS + 1] = "-ABEFR";
+// Element-wise, not the string literal "-ABEFR", which needs 7 bytes with its NUL
+// while this array is 6 (VTX_TABLE_MAX_BANDS is 5 without USE_VTX_TABLE). The letters
+// are indexed by band, never read as a C string, so dropping the terminator was
+// intended -- but GCC 14+ rejects it (-Werror=unterminated-string-initialization) and
+// that stopped the SITL target building on a modern host toolchain. This form is
+// byte-for-byte identical in both configurations, including the zero-filled tail when
+// USE_VTX_TABLE widens the array to 9.
+char           vtxTableBandLetters[VTX_TABLE_MAX_BANDS + 1] = { '-', 'A', 'B', 'E', 'F', 'R' };
 const char *   vtxTableChannelNames[VTX_TABLE_MAX_CHANNELS + 1] = {
         "-", "1", "2", "3", "4", "5", "6", "7", "8",
 };

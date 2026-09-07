@@ -324,8 +324,18 @@
 #define MSP_SET_GPS_RESCUE_PIDS  226    //in message          GPS Rescue throttleP and velocity PIDS + yaw P
 #define MSP_SET_VTXTABLE_BAND    227    //in message          set vtxTable band/channel data (one band at a time)
 #define MSP_SET_VTXTABLE_POWERLEVEL 228 //in message          set vtxTable powerLevel data (one powerLevel at a time)
-#define MSP_SET_TARGET_ATTITUDE  229    //in message          TARGET_MODE desired attitude: int16 qw,qx,qy,qz (x16384) + int16 gain (x10000)
-#define MSP_SET_TARGET_CORRECTION 231   //in message          TARGET_MODE BODY-FRAME correction quat, same wire format as 229; FC composes q_sp = q_cur (x) q_corr at receipt
+#define MSP_SET_TARGET_ATTITUDE  229    //in message          RETIRED (absolute attitude quat). Always answers ERROR; id kept reserved -- do not reuse
+#define MSP_SET_TARGET_CORRECTION 231   //in message          TARGET_MODE BODY-FRAME correction quat: int16 qw,qx,qy,qz (x16384) + int16 gain (x10000); FC composes q_sp = q_cur (x) q_corr at receipt. The ONLY setpoint contract
+// 232 is RESERVED for MSP_SET_TARGET_RATE (deg/s contract) -- do not reuse.
+#define MSP_TARGET_INFO          233    //out message         TARGET_MODE capabilities: uint8 protocol version, uint8 reserved(0), uint16 supported-command bitmask, uint16 att_kp. Firmware without it cannot accept our setpoints at all
+
+// Bits of the MSP_TARGET_INFO supported-command bitmask. Bit 0 belonged to the
+// retired absolute contract (229) and is permanently clear; an app that requires
+// MSP_TARGET_SUPPORTS_CORRECTION and finds it missing is talking to firmware that
+// will refuse every setpoint it sends.
+#define MSP_TARGET_SUPPORTS_ABSOLUTE   (1 << 0)  // retired, never set
+#define MSP_TARGET_SUPPORTS_CORRECTION (1 << 1)
+#define MSP_TARGET_SUPPORTS_RATE       (1 << 2)  // reserved for 232
 
 // #define MSP_BIND                 240    //in message          no param
 // #define MSP_ALARMS               242
