@@ -85,6 +85,13 @@ static float rateSp[XYZ_AXIS_COUNT] = { 0.0f, 0.0f, 0.0f };
 static float rateSpPrev[XYZ_AXIS_COUNT] = { 0.0f, 0.0f, 0.0f };
 static timeUs_t slewLastUs = 0;
 
+// The last MSP_SET_TARGET_CORRECTION command as received, in the wire's own
+// fixed-point scale (q x16384, gain x10000), for blackbox logging. Kept separate
+// from qSp/targetGain because those hold the COMPOSED absolute setpoint and the
+// clamped gain, not the command the app sent.
+static int16_t lastCmdQ[4] = { 0, 0, 0, 0 };
+static int16_t lastCmdGain = 0;
+
 void targetAttitudeInit(void)
 {
     qSp.w = 1.0f;
@@ -126,6 +133,15 @@ void targetAttitudeSetCorrection(float w, float x, float y, float z, float gain)
     const float inv = 1.0f / sqrtf(n2);
     w *= inv; x *= inv; y *= inv; z *= inv;
 
+    // Record the command as received (wire fixed-point scale) for the blackbox, so
+    // a log shows exactly what the app commanded even when the composed setpoint or
+    // the clamps downstream make the FC's response look unrelated to it.
+    lastCmdQ[0] = (int16_t)lrintf(w * 16384.0f);
+    lastCmdQ[1] = (int16_t)lrintf(x * 16384.0f);
+    lastCmdQ[2] = (int16_t)lrintf(y * 16384.0f);
+    lastCmdQ[3] = (int16_t)lrintf(z * 16384.0f);
+    lastCmdGain = (int16_t)lrintf(constrainf(gain, 0.0f, 1.0f) * 10000.0f);
+
     // Compose the absolute setpoint against OUR current attitude: q_sp = q_cur (x) q_corr
     // (Hamilton product, q_corr in body axes). Between updates the stored q_sp still
     // holds an absolute attitude, so the hold-on-coast behavior matches the legacy
@@ -149,6 +165,30 @@ bool targetAttitudeIsFresh(void)
         return false;
     }
     return cmpTimeUs(micros(), lastUpdateUs) < (timeDelta_t)TARGET_STALE_US;
+}
+
+void targetAttitudeGetLastCommand(int16_t out[5])
+{
+    out[0] = lastCmdQ[0];
+    out[1] = lastCmdQ[1];
+    out[2] = lastCmdQ[2];
+    out[3] = lastCmdQ[3];
+    out[4] = lastCmdGain;
+}
+
+uint8_t targetAttitudeBlackboxState(void)
+{
+    uint8_t state = 0;
+    if (FLIGHT_MODE(TARGET_MODE)) {
+        state |= 1 << 0;
+        if (targetAttitudeIsFresh()) {
+            state |= 1 << 1;   // autonomous: following the streamed 231 setpoint
+        }
+    }
+    if (IS_RC_MODE_ACTIVE(BOXMSPOVERRIDE)) {
+        state |= 1 << 2;
+    }
+    return state;
 }
 
 // AUTONOMOUS path: q_err = conj(qCur) (x) qSp ; body-rate setpoint = 2*Kp*gain*vec(q_err),

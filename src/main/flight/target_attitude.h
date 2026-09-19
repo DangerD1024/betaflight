@@ -114,6 +114,19 @@ void targetAttitudeUpdate(timeUs_t currentTimeUs);
 // Body-rate setpoint (deg/s) for one axis (FD_ROLL/FD_PITCH/FD_YAW).
 float targetAttitudeRateSetpoint(int axis);
 
+// The last MSP_SET_TARGET_CORRECTION command as received, in the wire's own
+// fixed-point scale (quaternion components x16384 in out[0..3], gain x10000 in
+// out[4]). Logged to the blackbox so a flight records what the app actually
+// commanded, not only what the FC derived from it.
+void targetAttitudeGetLastCommand(int16_t out[5]);
+
+// Mode-activation state for the blackbox slow frame, so "was TARGET really on,
+// and was it following the app or the sticks?" is readable from the log alone:
+//   bit0  TARGET_MODE flight mode active
+//   bit1  autonomous: a 231 setpoint is fresh and driving the rate law
+//   bit2  BOXMSPOVERRIDE active (MSP RC override applied to the masked channels)
+uint8_t targetAttitudeBlackboxState(void);
+
 // Advance the camera-servo correction ramp one loop and return the offset (us) to add to
 // servo servo_index. Call exactly once per loop -- the ramp rate depends on the interval
 // between calls. Returns 0 whenever the correction is off or both modes are not engaged.

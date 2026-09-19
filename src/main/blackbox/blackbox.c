@@ -69,6 +69,7 @@
 #include "flight/servos.h"
 #include "flight/gps_rescue.h"
 #include "flight/position.h"
+#include "flight/target_attitude.h"
 
 #include "io/beeper.h"
 #include "io/gps.h"
@@ -268,6 +269,19 @@ static const blackboxDeltaFieldDefinition_t blackboxMainFields[] = {
     {"eRPM",  6, UNSIGNED, .Ipredict = PREDICT(0),       .Iencode = ENCODING(UNSIGNED_VB), .Ppredict = PREDICT(PREVIOUS),      .Pencode = ENCODING(SIGNED_VB), CONDITION(MOTOR_7_HAS_RPM)},
     {"eRPM",  7, UNSIGNED, .Ipredict = PREDICT(0),       .Iencode = ENCODING(UNSIGNED_VB), .Ppredict = PREDICT(PREVIOUS),      .Pencode = ENCODING(SIGNED_VB), CONDITION(MOTOR_8_HAS_RPM)},
 #endif /* USE_DSHOT_TELEMETRY */
+
+    /* TARGET_MODE: the MSP_SET_TARGET_CORRECTION command exactly as received
+     * (quaternion x16384, gain x10000), so a log records what the app commanded and
+     * not only what the FC derived from it. Appended LAST so the existing field
+     * order -- and every decoder keyed on it -- is untouched. Whether TARGET_MODE /
+     * the autonomous law / MSP OVERRIDE were active is in the slow frame's
+     * targetState, and the boxes past bit 31 (e.g. MSP OVERRIDE, boxId 41) are in
+     * flightModeFlagsHi. */
+    {"tgtCmd",      0, SIGNED, .Ipredict = PREDICT(0), .Iencode = ENCODING(SIGNED_VB), .Ppredict = PREDICT(AVERAGE_2), .Pencode = ENCODING(SIGNED_VB), CONDITION(ALWAYS)},
+    {"tgtCmd",      1, SIGNED, .Ipredict = PREDICT(0), .Iencode = ENCODING(SIGNED_VB), .Ppredict = PREDICT(AVERAGE_2), .Pencode = ENCODING(SIGNED_VB), CONDITION(ALWAYS)},
+    {"tgtCmd",      2, SIGNED, .Ipredict = PREDICT(0), .Iencode = ENCODING(SIGNED_VB), .Ppredict = PREDICT(AVERAGE_2), .Pencode = ENCODING(SIGNED_VB), CONDITION(ALWAYS)},
+    {"tgtCmd",      3, SIGNED, .Ipredict = PREDICT(0), .Iencode = ENCODING(SIGNED_VB), .Ppredict = PREDICT(AVERAGE_2), .Pencode = ENCODING(SIGNED_VB), CONDITION(ALWAYS)},
+    {"tgtCmdGain",  -1, SIGNED, .Ipredict = PREDICT(0), .Iencode = ENCODING(SIGNED_VB), .Ppredict = PREDICT(AVERAGE_2), .Pencode = ENCODING(SIGNED_VB), CONDITION(ALWAYS)},
 };
 
 #ifdef USE_GPS
@@ -293,6 +307,13 @@ static const blackboxSimpleFieldDefinition_t blackboxGpsHFields[] = {
 static const blackboxSimpleFieldDefinition_t blackboxSlowFields[] = {
     {"flightModeFlags",       -1, UNSIGNED, PREDICT(0),      ENCODING(UNSIGNED_VB)},
     {"stateFlags",            -1, UNSIGNED, PREDICT(0),      ENCODING(UNSIGNED_VB)},
+    // Upper half of rcModeActivationMask. flightModeFlags carries only bits[0], so
+    // any box with boxId > 31 -- MSP OVERRIDE is 41 -- was invisible in the log, and
+    // bit 8 collides with PASSTHRU in the decoder's name table, which is how a
+    // TARGET engagement used to read as "ANGLE_MODE|PASSTHRU".
+    {"flightModeFlagsHi",     -1, UNSIGNED, PREDICT(0),      ENCODING(UNSIGNED_VB)},
+    // bit0 TARGET_MODE, bit1 autonomous (fresh 231), bit2 BOXMSPOVERRIDE.
+    {"targetState",           -1, UNSIGNED, PREDICT(0),      ENCODING(UNSIGNED_VB)},
 
     {"failsafePhase",         -1, UNSIGNED, PREDICT(0),      ENCODING(TAG2_3S32)},
     {"rxSignalReceived",      -1, UNSIGNED, PREDICT(0),      ENCODING(TAG2_3S32)},
@@ -333,6 +354,8 @@ typedef struct blackboxMainState_s {
     int16_t gyroUnfilt[XYZ_AXIS_COUNT];
     int16_t accADC[XYZ_AXIS_COUNT];
     int16_t debug[DEBUG16_VALUE_COUNT];
+    int16_t tgtCmd[4];      // last MSP_SET_TARGET_CORRECTION quaternion, x16384
+    int16_t tgtCmdGain;     // last MSP_SET_TARGET_CORRECTION gain, x10000
     int16_t motor[MAX_SUPPORTED_MOTORS];
     int16_t servo[MAX_SUPPORTED_SERVOS];
 #ifdef USE_DSHOT_TELEMETRY
@@ -364,6 +387,8 @@ typedef struct blackboxGpsState_s {
 typedef struct blackboxSlowState_s {
     uint32_t flightModeFlags; // extend this data size (from uint16_t)
     uint8_t stateFlags;
+    uint32_t flightModeFlagsHi; // rcModeActivationMask bits[1] (boxId 32..63)
+    uint8_t targetState;        // bit0 TARGET_MODE, bit1 autonomous, bit2 MSP OVERRIDE
     uint8_t failsafePhase;
     bool rxSignalReceived;
     bool rxFlightChannelsValid;
@@ -710,6 +735,10 @@ static void writeIntraframe(void)
     }
 #endif
 
+    // TARGET_MODE: the received MSP_SET_TARGET_CORRECTION command (field table order).
+    blackboxWriteSigned16VBArray(blackboxCurrent->tgtCmd, 4);
+    blackboxWriteSignedVB(blackboxCurrent->tgtCmdGain);
+
     //Rotate our history buffers:
 
     //The current state becomes the new "before" state
@@ -864,6 +893,10 @@ static void writeInterframe(void)
     }
 #endif
 
+    // TARGET_MODE: the received MSP_SET_TARGET_CORRECTION command (field table order).
+    blackboxWriteMainStateArrayUsingAveragePredictor(offsetof(blackboxMainState_t, tgtCmd), 4);
+    blackboxWriteSignedVB(blackboxCurrent->tgtCmdGain - blackboxLast->tgtCmdGain);
+
     //Rotate our history buffers
     blackboxHistory[2] = blackboxHistory[1];
     blackboxHistory[1] = blackboxHistory[0];
@@ -882,6 +915,8 @@ static void writeSlowFrame(void)
 
     blackboxWriteUnsignedVB(slowHistory.flightModeFlags);
     blackboxWriteUnsignedVB(slowHistory.stateFlags);
+    blackboxWriteUnsignedVB(slowHistory.flightModeFlagsHi);
+    blackboxWriteUnsignedVB(slowHistory.targetState);
 
     /*
      * Most of the time these three values will be able to pack into one byte for us:
@@ -901,6 +936,8 @@ static void loadSlowState(blackboxSlowState_t *slow)
 {
     memcpy(&slow->flightModeFlags, &rcModeActivationMask, sizeof(slow->flightModeFlags)); //was flightModeFlags;
     slow->stateFlags = stateFlags;
+    slow->flightModeFlagsHi = rcModeActivationMask.bits[1];
+    slow->targetState = targetAttitudeBlackboxState();
     slow->failsafePhase = failsafePhase();
     slow->rxSignalReceived = rxIsReceivingSignal();
     slow->rxFlightChannelsValid = rxAreFlightChannelsValid();
@@ -1158,6 +1195,16 @@ static void loadMainState(timeUs_t currentTimeUs)
 
     for (int i = 0; i < DEBUG16_VALUE_COUNT; i++) {
         blackboxCurrent->debug[i] = debug[i];
+    }
+
+    // TARGET_MODE: the MSP_SET_TARGET_CORRECTION command as received.
+    {
+        int16_t tgtCmd[5];
+        targetAttitudeGetLastCommand(tgtCmd);
+        for (int i = 0; i < 4; i++) {
+            blackboxCurrent->tgtCmd[i] = tgtCmd[i];
+        }
+        blackboxCurrent->tgtCmdGain = tgtCmd[4];
     }
 
     const int motorCount = getMotorCount();
