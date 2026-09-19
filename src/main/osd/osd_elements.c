@@ -145,6 +145,7 @@
 #include "fc/gps_lap_timer.h"
 #include "fc/rc_adjustments.h"
 #include "fc/rc_controls.h"
+#include "fc/rc_modes.h"
 #include "fc/runtime_config.h"
 
 #include "flight/gps_rescue.h"
@@ -715,15 +716,62 @@ static void osdElementAntiGravity(osdElementParms_t *element)
 
 #ifdef USE_ACC
 
+// Steep-pitch re-referencing of the artificial horizon (decidegrees of Euler pitch).
+// Enter above 60deg: beyond any normal wing manoeuvre, yet 20deg short of the ~80deg
+// dive TARGET mode flies. Leave below 50deg: the 10deg band is far above attitude
+// noise, so a wobbling dive does not flip frames.
+#define AH_STEEP_ENTER_DECIDEGREES 600
+#define AH_STEEP_EXIT_DECIDEGREES  500
+
+// A winged craft with TARGET mode configured dives at 80-90deg pitch and beyond, where
+// the Euler roll is singular: near vertical it swings toward +-180 and the horizon pins
+// at max bank although the wings are level. Past AH_STEEP_ENTER the horizon is drawn
+// in a frame pitched 90deg toward the nose (tailsitter/VTOL style): forward' is +Z for
+// a dive, -Z for a vertical climb, and up' is the nose axis pointing at the sky. Roll
+// becomes the wing tilt about forward' relative to the horizon, and pitch how far
+// forward' is below the horizon -- zero when exactly vertical, growing (line rising)
+// as the craft pitches on past vertical, so "push forward, line rises" still holds.
+// Only the AH switches frames; the Euler angles other elements show are untouched.
+// Gated on TARGET mode being assigned to a switch rather than a CLI setting: that is
+// what marks a craft flown this way.
+static bool osdAhUseSteepFrame(bool current)
+{
+    if (!isModeActivationConditionPresent(BOXTARGET)) {
+        return false;
+    }
+    const int absPitch = abs(attitude.values.pitch);
+    return absPitch > (current ? AH_STEEP_EXIT_DECIDEGREES : AH_STEEP_ENTER_DECIDEGREES);
+}
+
+// rMat[2][*] is earth-up in the body (X fwd, Y left, Z up) frame; the re-referenced
+// frame's earth-up is (s*rMat[2][2], rMat[2][1], s*rMat[2][0]) with s = -1 diving,
+// +1 climbing, so this is imu.c's Euler roll/pitch on that vector.
+static void osdAhSteepAttitude(int *roll, int *pitch)
+{
+    const float s = (rMat[2][0] < 0.0f) ? -1.0f : 1.0f;
+    *roll = lrintf(RADIANS_TO_DEGREES(atan2_approx(rMat[2][1], s * rMat[2][0])) * 10.0f);
+    *pitch = lrintf(RADIANS_TO_DEGREES((0.5f * M_PIf) - acos_approx(constrainf(s * rMat[2][2], -1.0f, 1.0f))) * 10.0f);
+}
+
 static void osdElementArtificialHorizon(osdElementParms_t *element)
 {
     static int x = -4;
+    static bool steepFrame = false;
+    if (x == -4) {
+        // Decide the frame once per full render so all nine columns agree
+        steepFrame = osdAhUseSteepFrame(steepFrame);
+    }
+    int rollAngle = attitude.values.roll;
+    int pitchAngle = attitude.values.pitch;
+    if (steepFrame) {
+        osdAhSteepAttitude(&rollAngle, &pitchAngle);
+    }
     // Get pitch and roll limits in tenths of degrees
     const int maxPitch = osdConfig()->ahMaxPitch * 10;
     const int maxRoll = osdConfig()->ahMaxRoll * 10;
     const int ahSign = osdConfig()->ahInvert ? -1 : 1;
-    const int rollAngle = constrain(attitude.values.roll * ahSign, -maxRoll, maxRoll);
-    int pitchAngle = constrain(attitude.values.pitch * ahSign, -maxPitch, maxPitch);
+    rollAngle = constrain(rollAngle * ahSign, -maxRoll, maxRoll);
+    pitchAngle = constrain(pitchAngle * ahSign, -maxPitch, maxPitch);
     // Convert pitchAngle to y compensation value
     // (maxPitch / 25) divisor matches previous settings of fixed divisor of 8 and fixed max AHI pitch angle of 20.0 degrees
     if (maxPitch > 0) {
