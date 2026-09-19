@@ -57,6 +57,12 @@
 #define USE_DSHOT_BITBANG
 #define USE_DSHOT_TELEMETRY
 #define USE_DSHOT_TELEMETRY_STATS
+// DShot beacon (ESC motor beeps for RX_LOST / RX_SET while disarmed) is disabled
+// fleet-wide. Every beacon command blocks arming for DSHOT_BEACON_GUARD_DELAY_US
+// (1.2 s) and the OSD shows "BEACON ON" instead of arming. The CLI "beacon" command
+// and beeper_dshot_beacon_tone are kept so saved configs still load, but they have no
+// effect. Define USE_DSHOT_BEACON to restore the upstream behaviour.
+//#define USE_DSHOT_BEACON
 #endif
 
 #define USE_MOTOR

@@ -82,7 +82,7 @@
 #define BEEPER_COMMAND_REPEAT 0xFE
 #define BEEPER_COMMAND_STOP   0xFF
 
-#ifdef USE_DSHOT
+#ifdef USE_DSHOT_BEACON
 static timeUs_t lastDshotBeaconCommandTimeUs;
 #endif
 
@@ -400,7 +400,7 @@ void beeperUpdate(timeUs_t currentTimeUs)
         return;
     }
 
-#ifdef USE_DSHOT
+#ifdef USE_DSHOT_BEACON
     if (!areMotorsRunning() && (currentBeeperEntry->mode == BEEPER_RX_SET || currentBeeperEntry->mode == BEEPER_RX_LOST)
         && !(beeperConfig()->dshotBeaconOffFlags & BEEPER_GET_FLAG(currentBeeperEntry->mode))) {
         if (cmpTimeUs(currentTimeUs, getLastDisarmTimeUs()) > DSHOT_BEACON_GUARD_DELAY_US && !isTryingToArm()) {
@@ -540,7 +540,7 @@ bool isBeeperOn(void) {return false;}
 
 #endif
 
-#ifdef USE_DSHOT
+#ifdef USE_DSHOT_BEACON
 timeUs_t getLastDshotBeaconCommandTimeUs(void)
 {
     return lastDshotBeaconCommandTimeUs;

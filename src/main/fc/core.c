@@ -496,7 +496,7 @@ void tryArm(void)
 
         const timeUs_t currentTimeUs = micros();
 
-#ifdef USE_DSHOT
+#ifdef USE_DSHOT_BEACON
         if (cmpTimeUs(currentTimeUs, getLastDshotBeaconCommandTimeUs()) < DSHOT_BEACON_GUARD_DELAY_US) {
             if (tryingToArm == ARMING_DELAYED_DISARMED) {
                 if (IS_RC_MODE_ACTIVE(BOXFLIPOVERAFTERCRASH)) {
