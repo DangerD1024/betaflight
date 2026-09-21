@@ -356,6 +356,22 @@ float targetAttitudeRateSetpoint(int axis)
 static float servoOffset = 0.0f;
 static timeUs_t servoOffsetLastUs = 0;
 
+// Hold-off before the gimbal is allowed to move at all.
+//
+// Two seconds from the moment BOTH conditions hold -- armed AND targeting engaged -- not
+// from either one alone. So enabling TARGET before arming starts the clock at the arm
+// instant, and arming first then enabling TARGET starts it at the enable instant; either
+// way the servo stays put for two seconds after the last of the two arrives.
+//
+// Dropping either condition clears the latch, so a momentary TARGET_MODE flicker costs
+// another full two seconds rather than resuming part-way. That is deliberate: the point
+// of the delay is to let the airframe settle before the camera moves, and a part-elapsed
+// timer would defeat it.
+#define TARGET_SERVO_ARM_DELAY_US 2000000
+
+static bool servoDelayLatched = false;
+static timeUs_t servoArmEngageUs = 0;
+
 // NOINLINE for the same reason as targetAttitudeUpdate above: the caller chain
 // (writeServos <- subTaskMotorUpdate) ends in FAST_CODE, so without this LTO pulls the
 // body into ITCM and overflows the F7's 16 KB. It runs once per loop, so the call
@@ -364,12 +380,38 @@ NOINLINE int16_t targetServoOffsetUpdate(void)
 {
     const int16_t correction = targetAttitudeConfig()->servo_correction;
     // Both switches, matching how the pilot hands the interceptor to VOT_C. MSP OVERRIDE
-    // has no FLIGHT_MODE bit, so it has to be read as an RC mode. No arming gate -- same
-    // as TARGET_MODE itself, which also lets this be checked on the bench.
-    const bool engaged = FLIGHT_MODE(TARGET_MODE) && IS_RC_MODE_ACTIVE(BOXMSPOVERRIDE);
-    const float goal = (engaged && correction != 0) ? (float)correction : 0.0f;
+    // has no FLIGHT_MODE bit, so it has to be read as an RC mode.
+    //
+    // Now ALSO gated on ARMED. This used to be deliberately ungated -- the old comment
+    // said so explicitly, "No arming gate ... which also lets this be checked on the
+    // bench" -- and the cost of that was that a bench or pre-arm bump of the TARGET
+    // switch moved the gimbal, i.e. moved the camera the seeker looks through while
+    // nothing was flying. Arming on the bench with the props off still exercises it;
+    // you just have to wait the two seconds out.
+    const bool engaged = ARMING_FLAG(ARMED)
+                      && FLIGHT_MODE(TARGET_MODE)
+                      && IS_RC_MODE_ACTIVE(BOXMSPOVERRIDE);
 
     const timeUs_t nowUs = micros();
+
+    // Latch the instant both conditions first hold; clear the latch the moment either
+    // drops so a re-engage waits the full delay again.
+    if (!engaged) {
+        servoDelayLatched = false;
+    } else if (!servoDelayLatched) {
+        servoDelayLatched = true;
+        servoArmEngageUs = nowUs;
+    }
+    const bool delayElapsed = servoDelayLatched
+                           && (cmpTimeUs(nowUs, servoArmEngageUs) >= TARGET_SERVO_ARM_DELAY_US);
+
+    // Until the hold-off expires the goal stays 0, and because the ramp below is
+    // symmetric the gimbal eases in over target_servo_speed from the moment the delay
+    // ends rather than stepping. Disengaging is unchanged: it eases back to 0 with no
+    // delay, since returning the camera to centre is the safe direction and should not
+    // be held off.
+    const float goal = (delayElapsed && correction != 0) ? (float)correction : 0.0f;
+
     // dt = 0 on the first call (no jump from a stale timestamp); clamped so a scheduler
     // stall can't turn into one big step either.
     float dt = (servoOffsetLastUs == 0) ? 0.0f : cmpTimeUs(nowUs, servoOffsetLastUs) * 1e-6f;

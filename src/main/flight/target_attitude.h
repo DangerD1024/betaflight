@@ -128,6 +128,17 @@ void targetAttitudeGetLastCommand(int16_t out[5]);
 uint8_t targetAttitudeBlackboxState(void);
 
 // Advance the camera-servo correction ramp one loop and return the offset (us) to add to
-// servo servo_index. Call exactly once per loop -- the ramp rate depends on the interval
-// between calls. Returns 0 whenever the correction is off or both modes are not engaged.
+// servo servo_index. Call exactly once per loop -- both the ramp rate and the arm-delay
+// timing depend on the interval between calls, so skipping loops stretches both.
+//
+// Returns 0 unless ALL of these hold:
+//   - the aircraft is ARMED
+//   - TARGET_MODE is active and BOXMSPOVERRIDE is active as an RC mode
+//   - at least 2 s (TARGET_SERVO_ARM_DELAY_US) has elapsed since the last of those
+//     became true -- so arming with TARGET already enabled starts the clock at the arm
+//     instant, and the reverse starts it at the enable instant
+//   - target_servo_correction is non-zero
+// Losing any of them clears the 2 s latch, so re-engaging waits it out again from zero.
+// The ramp back to 0 on the way out is NOT delayed: centring the camera is the safe
+// direction and should not be held off.
 int16_t targetServoOffsetUpdate(void);
