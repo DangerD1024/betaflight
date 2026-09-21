@@ -223,7 +223,26 @@ void pgResetFn_serialConfig(serialConfig_t *serialConfig)
     // (the configurator) and the bootloader pin. Set reboot_character = 82 ('R')
     // to restore the legacy terminal behaviour.
     serialConfig->reboot_character = 0;
-    serialConfig->serial_update_rate_hz = 100;
+    // 500, not upstream's 100. TASK_SERIAL is the lowest-priority task in the system
+    // and mspSerialProcess() completes exactly ONE MSP command per invocation before it
+    // breaks out, so MSP throughput is capped at the task's EFFECTIVE invocation rate,
+    // not at the baud rate. Upstream sized 100 Hz for 115200 (tasks.c: "100 Hz should
+    // be enough to flush up to 115 bytes @ 115200 baud" -- 115.2 bytes per 10 ms, which
+    // is exact) and that budget does not survive a faster link: at 500000 baud the
+    // 256-byte UART_RX_BUFFER_SIZE holds only 5.12 ms of line, and under load the task
+    // was starved to ~5 effective invocations per second.
+    //
+    // Measured on the VOT_C interceptor, same app binary, only this setting changed:
+    //   100 Hz: 5 s window tx +62 / FC rxTotal +27, rxGaps 8550, rxMissing 12048 (~56%)
+    //   500 Hz: 5 s window tx +63 / FC rxTotal +63, rxGaps 0,    rxMissing 0
+    // The FC was accepting 5.4 commands/s at 100 Hz against ~12.6/s offered.
+    //
+    // A CLI `set serial_update_rate_hz` overrides this and is preserved in the saved
+    // config, so the default only matters for a fresh config or a full chip erase --
+    // which is exactly when it would otherwise silently regress. Range is {100, 2000};
+    // 500 was already in fleet use on FALCON. Any craft running MSP above 115200 wants
+    // this raised: at 921600 baud, 100 Hz leaves 2.8 ms of buffer for a 10 ms interval.
+    serialConfig->serial_update_rate_hz = 500;
 }
 
 baudRate_e lookupBaudRateIndex(uint32_t baudRate)
