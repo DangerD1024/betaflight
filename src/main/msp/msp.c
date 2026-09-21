@@ -156,6 +156,7 @@
 #endif
 
 #include "msp.h"
+#include "msp_serial.h"   // mspGetDiscardCounters(), reported in MSP_UART_TEST_STATS
 
 
 static const char * const flightControllerIdentifier = FC_FIRMWARE_IDENTIFIER; // 4 UPPER CASE alpha numeric characters that identify the flight controller.
@@ -1069,6 +1070,41 @@ static bool mspCommonProcessOutCommand(int16_t cmdMSP, sbuf_t *dst, mspPostProce
     return true;
 }
 
+// MSP_UART_TEST (234) / MSP_UART_TEST_STATS (235): companion-link quality test.
+//
+// The app streams numbered 12-byte packets and the FC only COUNTS them. Nothing
+// here reaches the mixer, the PID loop or TARGET_MODE, so the test means the same
+// thing on the bench with the aircraft on the ground as it does in the air -- and
+// proving the link before an engagement beats inferring it from a targeting loop
+// that misbehaves at 100 m, where a dropped setpoint and a wrong setpoint look
+// identical from the cockpit.
+//
+// File-static and deliberately NOT a PG: the counters are per-boot. A reboot
+// clears them, which is what the app's Service mode does as well, so both ends of
+// the test restart from zero together. Surviving a reboot would make a fresh test
+// read as a continuation of the last one, and rxMissing would be meaningless.
+//
+// Kept in msp.c rather than a new source file: one block of state does not justify
+// touching the build system, and that risk is not worth taking for a test hook.
+typedef struct uartTestState_s {
+    uint32_t rxTotal;        // valid test packets received
+    uint32_t rxLastSeq;      // highest seq seen; the baseline every gap is measured against
+    uint32_t rxGaps;         // sequence discontinuities: ONE per hole, not one per packet
+    uint32_t rxMissing;      // packets inferred missing: sum of the hole sizes
+    uint32_t rxInvalid;      // rejected: bad size, bad magic or bad pattern
+    uint32_t rxReordered;    // duplicate or out-of-order: desync, not a dropout
+    uint32_t txReplies;      // 235 replies sent, counting the one in flight
+    uint16_t lastIntervalMs; // app's send interval as last reported; no slot in the v1 payload
+    bool active;             // set once any valid test packet has been seen
+} uartTestState_t;
+
+static uartTestState_t uartTest;
+
+#define UART_TEST_PAYLOAD_SIZE        12          // bytes in a 234 packet, exact
+#define UART_TEST_MAGIC               0xA55A      // catches byte-level corruption
+#define UART_TEST_PATTERN             0x55AA55AA  // bit-alternating: fails on a stuck bit in EITHER direction
+#define UART_TEST_STATS_PROTO_VERSION 1           // 235 layout version; unrelated to TARGET_INFO_PROTOCOL_VERSION
+
 static bool mspProcessOutCommand(mspDescriptor_t srcDesc, int16_t cmdMSP, sbuf_t *dst)
 {
     bool unsupportedCommand = false;
@@ -1350,6 +1386,49 @@ case MSP_NAME:
         // command the contract expects. Sent so it cannot drift out of sync with
         // the app's compiled-in copy.
         sbufWriteU16(dst, targetAttitudeConfig()->att_kp);
+        break;
+
+    case MSP_UART_TEST_STATS:
+        // Link-quality counters, 44 bytes LE. Safe to poll at any time and with no
+        // test running: before the first valid 234 everything reads zero and
+        // active is 0, so "I have seen nothing" and "the link is clean" are
+        // distinguishable instead of both looking like a row of zeros.
+        //
+        // txReplies is incremented BEFORE it is written, so the value the app
+        // receives already counts the reply it is reading. The app computes
+        // downlink loss as FC.txReplies - app.repliesReceived; writing the
+        // pre-increment value would leave that difference at 1 forever and read
+        // as a phantom lost reply on a link that is in fact clean.
+        //
+        // rxReordered and the three discard counters are TRAILING extensions of the
+        // 28-byte v1 layout. New fields have to go on the end because the app parses
+        // optional tail fields by remaining length -- see the offset table in
+        // msp_protocol.h.
+        //
+        // The discard counters are the discriminator between "the wire corrupted it"
+        // and "the FC never saw it": a frame mangled in transit is rejected here and
+        // ticks one of them, whereas a frame that never arrives ticks none. Loss with
+        // all three flat is clean loss -- driver overflow, starvation or a TX that is
+        // not reaching the pin -- and needs a different fix from noise on the line.
+        // They are cumulative since FC boot and aggregated over MSP ports, so the app
+        // deltas them against the snapshot taken when the test was enabled.
+        uartTest.txReplies++;
+        sbufWriteU8(dst, uartTest.active ? 1 : 0);
+        sbufWriteU8(dst, 0);  // reserved; held at 0 so a v1 app can skip it
+        sbufWriteU16(dst, UART_TEST_STATS_PROTO_VERSION);
+        sbufWriteU32(dst, uartTest.rxTotal);
+        sbufWriteU32(dst, uartTest.rxLastSeq);
+        sbufWriteU32(dst, uartTest.rxGaps);
+        sbufWriteU32(dst, uartTest.rxMissing);
+        sbufWriteU32(dst, uartTest.rxInvalid);
+        sbufWriteU32(dst, uartTest.txReplies);
+        sbufWriteU32(dst, uartTest.rxReordered);  // offset 28, appended after v1
+        {
+            const mspDiscardCounters_t *const discards = mspGetDiscardCounters();
+            sbufWriteU32(dst, discards->checksum);   // offset 32
+            sbufWriteU32(dst, discards->header);     // offset 36
+            sbufWriteU32(dst, discards->strayIdle);  // offset 40
+        }
         break;
 
     case MSP_ALTITUDE:
@@ -2744,6 +2823,99 @@ static mspResult_e mspProcessInCommand(mspDescriptor_t srcDesc, int16_t cmdMSP, 
             const float z = (int16_t)sbufReadU16(src) * qs;
             const float gain = (int16_t)sbufReadU16(src) / 10000.0f;
             targetAttitudeSetCorrection(w, x, y, z, gain);
+        }
+        break;
+
+    case MSP_UART_TEST:
+        // Link-quality test packet, 12 bytes LE: uint32 seq (from 1, +1 each),
+        // uint16 magic (0xA55A), uint16 intervalMs (informational), uint32 pattern
+        // (0x55AA55AA). Counted and discarded -- no flight code reads this.
+        //
+        // Rejections are TALLIED rather than quietly dropped. That is the whole
+        // value of the command: if a bad frame just returned ERROR and vanished,
+        // the stats could not tell "the link is clean" apart from "the app has
+        // been sending garbage we never looked at", and the test would pass for
+        // the one reason it exists to catch.
+        if (dataSize != UART_TEST_PAYLOAD_SIZE) {
+            uartTest.rxInvalid++;
+            return MSP_RESULT_ERROR;
+        }
+        {
+            const uint32_t seq = sbufReadU32(src);
+            const uint16_t magic = sbufReadU16(src);
+            const uint16_t intervalMs = sbufReadU16(src);
+            const uint32_t pattern = sbufReadU32(src);
+
+            if (magic != UART_TEST_MAGIC || pattern != UART_TEST_PATTERN) {
+                // Wrong magic means a frame that is not ours at all; a wrong
+                // pattern means the bytes we did get are corrupt. The pattern is
+                // bit-alternating on purpose so it fails on a bit stuck low OR
+                // stuck high, which a constant word would sail straight through.
+                uartTest.rxInvalid++;
+                return MSP_RESULT_ERROR;
+            }
+
+            uartTest.rxTotal++;
+            uartTest.active = true;
+            // The app's own send interval. No slot for it in the v1 stats payload;
+            // held here so rxMissing can be turned into a rate without the app
+            // having to restate what it already told us.
+            uartTest.lastIntervalMs = intervalMs;
+
+            if (uartTest.rxTotal == 1) {
+                // First valid packet: there is no baseline yet, so make one rather
+                // than inventing a gap. Note this records whatever seq arrived,
+                // which need not be 1 -- if the opening packets were lost we cannot
+                // know that, and guessing would charge the link for its own warm-up.
+                uartTest.rxLastSeq = seq;
+            } else {
+                // Exactly one of the two branches below can fire: seq > rxLastSeq + 1
+                // and seq <= rxLastSeq are mutually exclusive. The remaining case,
+                // seq == rxLastSeq + 1, is an in-order packet and is the norm.
+                if (seq > uartTest.rxLastSeq + 1) {
+                    // A hole. One discontinuity plus however many packets are
+                    // missing inside it, so a single long dropout reads as one gap
+                    // of N rather than N gaps -- rxGaps says how often the link
+                    // broke, rxMissing says how much it cost.
+                    //
+                    // Both are uint32: at 4 billion packets the rxLastSeq + 1 test
+                    // would wrap. At ~640 packets/s that is ~77 days of unbroken
+                    // streaming, far past any bench test, so the wrap is left alone
+                    // rather than paid for with a wider compare.
+                    uartTest.rxGaps++;
+                    uartTest.rxMissing += seq - uartTest.rxLastSeq - 1;
+                } else if (seq <= uartTest.rxLastSeq) {
+                    // A plain UART delivers bytes in order, so this is NOT network-style
+                    // reordering and it is not desync either: the only way a valid,
+                    // magic-and-pattern-checked packet can carry a lower seq than one we
+                    // already accepted is that the SENDER RESTARTED and began counting
+                    // again. The app's seq lives in a process-lifetime variable, so every
+                    // app restart, redeploy or crash does this.
+                    //
+                    // Re-baseline instead of only counting. rxLastSeq is a high-water
+                    // mark, so leaving it at the previous session's peak would make
+                    // every subsequent packet look like a repeat -- measured as
+                    // reordered == rxTotal exactly, 690/690 -- and, worse, the gap test
+                    // above could never fire again for the rest of this FC boot because
+                    // seq would not exceed the stale mark until the new run out-sent the
+                    // whole of the old one. Gap detection would be silently dead while
+                    // still reporting a clean 0, which is the worst failure mode for a
+                    // link test: it passes for the reason it exists to catch.
+                    //
+                    // Counted once per reset rather than per packet, so the number means
+                    // "the app restarted N times during this FC boot" -- useful context
+                    // for reading the other counters, and not a link fault.
+                    uartTest.rxReordered++;
+                    uartTest.rxLastSeq = seq;
+                }
+                // Track the high-water mark, not the last arrival: after a
+                // duplicate, rxLastSeq must still be the highest seq seen or every
+                // following in-order packet would look like a gap. The reset branch
+                // above has already assigned seq, so this is a no-op for it.
+                if (seq > uartTest.rxLastSeq) {
+                    uartTest.rxLastSeq = seq;
+                }
+            }
         }
         break;
 #if defined(USE_ACC)

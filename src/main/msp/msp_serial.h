@@ -123,3 +123,36 @@ void mspSerialReleaseSharedTelemetryPorts(void);
 mspDescriptor_t getMspSerialPortDescriptor(const uint8_t portIdentifier);
 int mspSerialPush(serialPortIdentifier_e port, uint8_t cmd, uint8_t *data, int datalen, mspDirection_e direction, mspVersion_e mspVersion);
 uint32_t mspSerialTxBytesFree(void);
+
+// Frames the parser threw away, aggregated across all MSP ports.
+//
+// Every reject path in mspSerialProcessReceivedData() used to just set c_state back to
+// MSP_IDLE and move on, with no record that anything happened. That makes two very
+// different failures look identical to the companion computer: "my frame never
+// arrived" and "my frame arrived corrupt and you discarded it". Both read as a missing
+// reply, and one is a wiring/baud fault while the other is a TX-side fault -- they have
+// different fixes and pointing at the wrong one wastes a bench session.
+//
+// Split three ways because the split is what carries the information:
+//   checksum    a COMPLETE frame arrived and its checksum/CRC did not match. Bytes were
+//               altered in transit: noise, a baud mismatch, or two writers interleaving
+//               on the same fd.
+//   header      a frame started ('$') but the header did not parse -- wrong direction
+//               byte, an over-size length, a truncated V2 header. This is desync: the
+//               parser lost byte alignment, which a single lost or injected byte causes.
+//   strayIdle   bytes arrived while the parser was waiting for '$'. On a quiet, healthy
+//               link this stays at zero, so any growth is line noise or another device
+//               driving the same wire.
+//
+// A clean loss -- the frame never reaching the UART at all -- increments NONE of these.
+// That is the point: if the companion computer's sent count runs ahead of the FC's
+// received count while all three counters here stay zero, the bytes did not reach the
+// FC's parser, which exonerates the wire and points at the FC's serial RX buffer
+// overflowing or the sender never actually writing.
+typedef struct mspDiscardCounters_s {
+    uint32_t checksum;
+    uint32_t header;
+    uint32_t strayIdle;
+} mspDiscardCounters_t;
+
+const mspDiscardCounters_t *mspGetDiscardCounters(void);

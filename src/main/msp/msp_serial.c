@@ -120,6 +120,17 @@ void mspSerialReleaseSharedTelemetryPorts(void)
 }
 #endif
 
+// See mspDiscardCounters_t in msp_serial.h for what each bucket means and why the
+// split matters. Aggregated across ports rather than per-port: a companion computer
+// diagnosing its own link has one port, and threading a per-port accessor through to
+// MSP_UART_TEST_STATS would mean passing the port into the stats handler for no gain.
+static mspDiscardCounters_t mspDiscards;
+
+const mspDiscardCounters_t *mspGetDiscardCounters(void)
+{
+    return &mspDiscards;
+}
+
 static bool mspSerialProcessReceivedData(mspPort_t *mspPort, uint8_t c)
 {
     switch (mspPort->c_state) {
@@ -128,6 +139,9 @@ static bool mspSerialProcessReceivedData(mspPort_t *mspPort, uint8_t c)
             if (c == '$') {
                 mspPort->c_state = MSP_HEADER_START;
             } else {
+                // A byte that is not a frame start, while we are not mid-frame. On a
+                // quiet healthy link nothing arrives here at all.
+                mspDiscards.strayIdle++;
                 return false;
             }
             break;
@@ -146,6 +160,7 @@ static bool mspSerialProcessReceivedData(mspPort_t *mspPort, uint8_t c)
                     mspPort->mspVersion = MSP_V2_NATIVE;
                     break;
                 default:
+                    mspDiscards.header++;
                     mspPort->c_state = MSP_IDLE;
                     break;
             }
@@ -161,6 +176,7 @@ static bool mspSerialProcessReceivedData(mspPort_t *mspPort, uint8_t c)
                     mspPort->packetType = MSP_PACKET_REPLY;
                     break;
                 default:
+                    mspDiscards.header++;
                     mspPort->c_state = MSP_IDLE;
                     break;
             }
@@ -176,6 +192,7 @@ static bool mspSerialProcessReceivedData(mspPort_t *mspPort, uint8_t c)
                     mspPort->packetType = MSP_PACKET_REPLY;
                     break;
                 default:
+                    mspDiscards.header++;
                     mspPort->c_state = MSP_IDLE;
                     break;
             }
@@ -188,6 +205,7 @@ static bool mspSerialProcessReceivedData(mspPort_t *mspPort, uint8_t c)
                 mspHeaderV1_t * hdr = (mspHeaderV1_t *)&mspPort->inBuf[0];
                 // Check incoming buffer size limit
                 if (hdr->size > MSP_PORT_INBUF_SIZE) {
+                    mspDiscards.header++;
                     mspPort->c_state = MSP_IDLE;
                 }
                 else if (hdr->cmd == MSP_V2_FRAME_ID) {
@@ -196,6 +214,7 @@ static bool mspSerialProcessReceivedData(mspPort_t *mspPort, uint8_t c)
                         mspPort->mspVersion = MSP_V2_OVER_V1;
                         mspPort->c_state = MSP_HEADER_V2_OVER_V1;
                     } else {
+                        mspDiscards.header++;
                         mspPort->c_state = MSP_IDLE;
                     }
                 } else {
@@ -220,6 +239,9 @@ static bool mspSerialProcessReceivedData(mspPort_t *mspPort, uint8_t c)
             if (mspPort->checksum1 == c) {
                 mspPort->c_state = MSP_COMMAND_RECEIVED;
             } else {
+                // The frame was fully framed but at least one byte differed on the wire.
+                // This is the counter that separates corruption from loss.
+                mspDiscards.checksum++;
                 mspPort->c_state = MSP_IDLE;
             }
             break;
@@ -231,6 +253,7 @@ static bool mspSerialProcessReceivedData(mspPort_t *mspPort, uint8_t c)
             if (mspPort->offset == (sizeof(mspHeaderV2_t) + sizeof(mspHeaderV1_t))) {
                 mspHeaderV2_t * hdrv2 = (mspHeaderV2_t *)&mspPort->inBuf[sizeof(mspHeaderV1_t)];
                 if (hdrv2->size > MSP_PORT_INBUF_SIZE) {
+                    mspDiscards.header++;
                     mspPort->c_state = MSP_IDLE;
                 } else {
                     mspPort->dataSize = hdrv2->size;
@@ -257,6 +280,7 @@ static bool mspSerialProcessReceivedData(mspPort_t *mspPort, uint8_t c)
             if (mspPort->checksum2 == c) {
                 mspPort->c_state = MSP_CHECKSUM_V1; // Checksum 2 correct - verify v1 checksum
             } else {
+                mspDiscards.checksum++;
                 mspPort->c_state = MSP_IDLE;
             }
             break;
@@ -287,6 +311,7 @@ static bool mspSerialProcessReceivedData(mspPort_t *mspPort, uint8_t c)
             if (mspPort->checksum2 == c) {
                 mspPort->c_state = MSP_COMMAND_RECEIVED;
             } else {
+                mspDiscards.checksum++;
                 mspPort->c_state = MSP_IDLE;
             }
             break;

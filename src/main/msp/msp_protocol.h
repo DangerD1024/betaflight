@@ -328,6 +328,46 @@
 #define MSP_SET_TARGET_CORRECTION 231   //in message          TARGET_MODE BODY-FRAME correction quat: int16 qw,qx,qy,qz (x16384) + int16 gain (x10000); FC composes q_sp = q_cur (x) q_corr at receipt. The ONLY setpoint contract
 // 232 is RESERVED for MSP_SET_TARGET_RATE (deg/s contract) -- do not reuse.
 #define MSP_TARGET_INFO          233    //out message         TARGET_MODE capabilities: uint8 protocol version, uint8 reserved(0), uint16 supported-command bitmask, uint16 att_kp. Firmware without it cannot accept our setpoints at all
+#define MSP_UART_TEST            234    //in message          LINK-QUALITY test packet, 12 bytes LE: uint32 seq (from 1, +1 each), uint16 magic 0xA55A, uint16 intervalMs (informational), uint32 pattern 0x55AA55AA. Counted, never acted on
+#define MSP_UART_TEST_STATS      235    //out message         LINK-QUALITY counters, 44 bytes LE (offset table below). Trailing-only growth: the app parses optional tail fields by remaining length
+
+// MSP_UART_TEST_STATS (235) payload, 44 bytes, all little-endian. Growth MUST stay
+// trailing: the app reads optional tail fields by remaining length, so appending
+// keeps a new firmware readable to an app that already shipped, while inserting a
+// field mid-layout would silently shift every field after it.
+//   0: uint8  active       1 once any valid test packet has been seen, else 0
+//   1: uint8  reserved     0
+//   2: uint16 protoVersion 1
+//   4: uint32 rxTotal      valid test packets received
+//   8: uint32 rxLastSeq    highest seq seen
+//  12: uint32 rxGaps       sequence discontinuities (one per hole, not per packet)
+//  16: uint32 rxMissing    packets inferred missing (sum of the hole sizes)
+//  20: uint32 rxInvalid    rejected: bad size, bad magic or bad pattern
+//  24: uint32 txReplies    stats replies sent, INCLUDING the one being read
+//  28: uint32 rxReordered  sender restarts detected (NOT reordering -- see note)
+//  32: uint32 discardChecksum  MSP frames rejected on a checksum/CRC mismatch
+//  36: uint32 discardHeader    MSP frames rejected on a malformed header or oversize
+//  40: uint32 discardStrayIdle bytes seen while idle that were not a frame start
+//
+// txReplies counts the reply it travels in, so the app can take downlink loss as
+// FC.txReplies - app.repliesReceived. Off-by-one there reads as a phantom dropped
+// reply on a link that is in fact clean.
+//
+// rxReordered is a misnomer kept for wire compatibility: reordering is impossible on a
+// byte-serial UART, so a valid probe carrying a lower seq than one already accepted can
+// only mean the sender restarted and began counting again. It counts those restarts,
+// once each. It is NOT a link fault and must not be treated as one -- the app restarts
+// on every deploy. Treating it as degradation put a permanent LINK DEGRADED verdict on a
+// measured-perfect link.
+//
+// The last three are the MSP parser's own reject counters (msp_serial.c) and cover
+// every MSP traffic on the port, not just test packets. They exist to separate two
+// failure modes that look identical from the app side: a frame altered on the wire
+// reaches the parser and is rejected, ticking discardChecksum, while a frame that
+// never arrives ticks nothing at all. Loss with all three flat is clean loss --
+// driver overflow, task starvation, or a TX that is not reaching the pin -- and
+// needs a different fix from noise on the line. Cumulative since FC boot and
+// aggregated over MSP ports, so the app deltas them against its own start snapshot.
 
 // Bits of the MSP_TARGET_INFO supported-command bitmask. Bit 0 belonged to the
 // retired absolute contract (229) and is permanently clear; an app that requires
