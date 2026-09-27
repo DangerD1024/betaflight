@@ -233,18 +233,22 @@ static void targetComputeManualRate(const quaternion *qCur)
     const float levelGain = targetAttitudeConfig()->level_gain * 0.1f;
     const float maxRP = targetAttitudeConfig()->max_rate_rp, maxYaw = targetAttitudeConfig()->max_rate_yaw;
     // `target_rotation` picks which stick pans the heading; the other is ignored.
-    const int panAxis = (targetAttitudeConfig()->rotation == TARGET_ROTATION_YAW) ? FD_YAW : FD_ROLL;
+    const bool yawPans = (targetAttitudeConfig()->rotation == TARGET_ROTATION_YAW);
 
     // pilot sticks -> rate (deg/s), deadbanded so a resting (~1501) stick truly holds.
     float pitchStick = getSetpointRate(FD_PITCH);
-    float panStick   = getSetpointRate(panAxis);
+    float panStick   = getSetpointRate(yawPans ? FD_YAW : FD_ROLL);
     if (fabsf(pitchStick) < deadband) pitchStick = 0.0f;
     if (fabsf(panStick)   < deadband) panStick   = 0.0f;
-    // pan stick RIGHT must rotate the craft RIGHT (CW seen from above). On the real
-    // airframe the world-down pan came out mirrored, so the sign is negated here.
+    // pan stick RIGHT must rotate the craft RIGHT (CW seen from above). The g vector
+    // below is rMat[2], which points world-UP (it tracks the accelerometer, +1g on Z
+    // when level), so a positive pan turns LEFT. ROLL right reads positive, hence
+    // negated. YAW right already reads NEGATIVE (rc.c inverts the yaw stick), so it
+    // goes in unchanged -- negating it too is what made `target_rotation = YAW` turn
+    // the wrong way.
     // NOTE: the AUTONOMOUS/VOT_C path (targetComputeRate, q_err) does NOT use this,
     // so VOT_C control is unaffected by this sign.
-    const float pan = -panStick;  // deg/s rotation about world-down (stick-right = right)
+    const float pan = yawPans ? panStick : -panStick;  // deg/s about world-up (stick-right = right)
 
     // gentle wings-level: drive gravity's body-Y component (gy ~ sin bank) -> 0 about the
     // axis that changes bank with the LEAST heading change (g x ybody = (-gz,0,gx)), so it
