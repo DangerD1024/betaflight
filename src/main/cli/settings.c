@@ -1018,7 +1018,6 @@ const clivalue_t valueTable[] = {
     { PARAM_NAME_IMU_MAG_DECLINATION, VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 0,  3599 }, PG_IMU_CONFIG, offsetof(imuConfig_t, mag_declination) },
 #endif
 
-// PG_TARGET_ATTITUDE_CONFIG -- VOT_C interceptor TARGET_MODE tunables (att_kp & level_gain stored x10)
     { "target_att_kp",        VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 2000 },  PG_TARGET_ATTITUDE_CONFIG, offsetof(targetAttitudeConfig_t, att_kp) },
     { "target_max_accel",     VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 20000 }, PG_TARGET_ATTITUDE_CONFIG, offsetof(targetAttitudeConfig_t, max_accel) },
     { "target_max_rate_rp",   VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 10, 1000 }, PG_TARGET_ATTITUDE_CONFIG, offsetof(targetAttitudeConfig_t, max_rate_rp) },

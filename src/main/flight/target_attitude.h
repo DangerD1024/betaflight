@@ -18,15 +18,6 @@
  * If not, see <http://www.gnu.org/licenses/>.
  */
 
-// TARGET_MODE attitude controller.
-//
-// An external app (the VOT_C interceptor) streams a desired ATTITUDE QUATERNION
-// (body->earth, same convention as imu.c::getQuaternion) plus a [0..1] gain over
-// MSP (MSP_SET_TARGET_ATTITUDE). Each PID loop this module computes the body-frame
-// attitude error and turns it into a per-axis body-rate setpoint (deg/s), which
-// pid.c injects in place of the stick/angle setpoint when FLIGHT_MODE(TARGET_MODE)
-// is active. Gimbal-lock-free (operates on the quaternion, never Euler), so it is
-// safe at the ~80deg pitch the interceptor flies at.
 
 #pragma once
 

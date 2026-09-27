@@ -1002,12 +1002,6 @@ void processRxModes(timeUs_t currentTimeUs)
 #endif
 
 #if defined(USE_ACC)
-    // TARGET_MODE: quaternion-attitude control. Engages on the AUX switch + ACC
-    // (like ANGLE/HORIZON -- no arming gate, so it shows active in the configurator
-    // on the bench; disarmed the motors are off so the controller output is inert).
-    // Source is chosen inside the controller: a fresh setpoint streamed over MSP by
-    // the interceptor app (autonomous tracker) drives it; otherwise it falls back to
-    // STANDALONE MANUAL (the pilot flies via the sticks, level-bank).
 #ifdef SIMULATOR_BUILD
     // SITL: attitude comes straight from the FDM quaternion (getQuaternion), so the
     // controller works without a physical ACC -- and the sim arms cleanly only with
