@@ -329,9 +329,9 @@
 // 232 is RESERVED for MSP_SET_TARGET_RATE (deg/s contract) -- do not reuse.
 #define MSP_TARGET_INFO          233    //out message         TARGET_MODE capabilities: uint8 protocol version, uint8 reserved(0), uint16 supported-command bitmask, uint16 att_kp. Firmware without it cannot accept our setpoints at all
 #define MSP_UART_TEST            234    //in message          LINK-QUALITY test packet, 12 bytes LE: uint32 seq (from 1, +1 each), uint16 magic 0xA55A, uint16 intervalMs (informational), uint32 pattern 0x55AA55AA. Counted, never acted on
-#define MSP_UART_TEST_STATS      235    //out message         LINK-QUALITY counters, 44 bytes LE (offset table below). Trailing-only growth: the app parses optional tail fields by remaining length
+#define MSP_UART_TEST_STATS      235    //out message         LINK-QUALITY counters, 58 bytes LE (offset table below). Trailing-only growth: the app parses optional tail fields by remaining length
 
-// MSP_UART_TEST_STATS (235) payload, 44 bytes, all little-endian. Growth MUST stay
+// MSP_UART_TEST_STATS (235) payload, 58 bytes, all little-endian. Growth MUST stay
 // trailing: the app reads optional tail fields by remaining length, so appending
 // keeps a new firmware readable to an app that already shipped, while inserting a
 // field mid-layout would silently shift every field after it.
@@ -348,6 +348,26 @@
 //  32: uint32 discardChecksum  MSP frames rejected on a checksum/CRC mismatch
 //  36: uint32 discardHeader    MSP frames rejected on a malformed header or oversize
 //  40: uint32 discardStrayIdle bytes seen while idle that were not a frame start
+//  44: uint32 spDropouts   MSP 231 fresh->stale transitions since FC boot
+//  48: uint32 spStaleMsTotal  cumulative ms spent on the STANDALONE MANUAL fallback
+//  52: uint32 spStaleMsMax    longest single stale run, clamped at 65535
+//  56: uint8  spExpected   1 when a stream SHOULD be arriving: armed && TARGET_MODE && MSP OVERRIDE
+//  57: uint8  spStaleNow   1 when the setpoint is stale on the loop that built this reply
+//
+// Offsets 44-57 are the setpoint stream, and they answer a different question from the
+// discard counters at 32-40. Those say whether arriving bytes were CORRUPT; these say
+// whether the 231 quaternions STOPPED ARRIVING. The distinction matters because a frame
+// that never arrives ticks none of the parser rejects -- so a clean loss of the setpoint
+// stream is invisible to 32-40, and it is the failure that silently hands the aircraft
+// back to the pilot's sticks mid-engagement (targetAttitudeIsFresh() false selects the
+// STANDALONE MANUAL law). Read them together: dropouts with discards climbing is line
+// noise; dropouts with discards flat is loss, and the two need different fixes.
+//
+// spExpected gates the warning. The app streams 231 only while targeting is engaged, so
+// staleness while disarmed or without MSP OVERRIDE is normal and must not be reported as
+// a fault -- only the pilot having handed the aircraft over makes a missing setpoint an
+// error. Cumulative since boot and NOT reset when TARGET_MODE drops, so the app deltas
+// them against its own snapshot the same way it does every other counter here.
 //
 // txReplies counts the reply it travels in, so the app can take downlink loss as
 // FC.txReplies - app.repliesReceived. Off-by-one there reads as a phantom dropped

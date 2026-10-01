@@ -1389,10 +1389,16 @@ case MSP_NAME:
         break;
 
     case MSP_UART_TEST_STATS:
-        // Link-quality counters, 44 bytes LE. Safe to poll at any time and with no
-        // test running: before the first valid 234 everything reads zero and
+        // Link-quality counters, 58 bytes LE. Safe to poll at any time and with no
+        // test running: before the first valid 234 the test fields read zero and
         // active is 0, so "I have seen nothing" and "the link is clean" are
         // distinguishable instead of both looking like a row of zeros.
+        //
+        // The parser rejects (32-40) and the setpoint dropouts (44-57) are NOT test
+        // fields and are live whether or not a 234 has ever arrived -- they describe the
+        // port and the 231 stream, which exist independently of the test. The app polls
+        // this message for them during normal flight, so `active` must not be read as
+        // "the rest of this payload is valid".
         //
         // txReplies is incremented BEFORE it is written, so the value the app
         // receives already counts the reply it is reading. The app computes
@@ -1428,6 +1434,26 @@ case MSP_NAME:
             sbufWriteU32(dst, discards->checksum);   // offset 32
             sbufWriteU32(dst, discards->header);     // offset 36
             sbufWriteU32(dst, discards->strayIdle);  // offset 40
+        }
+        // Setpoint dropout accounting, offsets 44-57. This answers "is the UART LOSING the
+        // quaternion stream", where the counters above answer "is the UART CORRUPTING
+        // bytes". Both are needed: a 231 that never arrives at all ticks none of the parser
+        // rejects, so corruption counters alone cannot see a clean loss -- and a clean loss
+        // of the setpoint stream is what silently drops the aircraft onto the pilot's sticks
+        // mid-engagement (targetAttitudeIsFresh() false -> STANDALONE MANUAL).
+        //
+        // Reported here rather than on 233 (MSP_TARGET_INFO) because 233 is a startup
+        // capability query answered once, and this has to be pollable during flight. All
+        // eight debug slots are already taken, so the debug channel cannot carry it either.
+        // staleMsMax is widened to u32 on the wire although the FC holds it in a u16, so the
+        // app reads four u32 then two u8 with no mixed-width bookkeeping.
+        {
+            const targetSetpointDropoutStats_t *const sp = targetGetSetpointDropoutStats();
+            sbufWriteU32(dst, sp->dropouts);       // offset 44
+            sbufWriteU32(dst, sp->staleMsTotal);   // offset 48
+            sbufWriteU32(dst, sp->staleMsMax);     // offset 52
+            sbufWriteU8(dst, sp->expected);        // offset 56
+            sbufWriteU8(dst, sp->staleNow);        // offset 57
         }
         break;
 

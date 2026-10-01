@@ -85,6 +85,22 @@ static float rateSp[XYZ_AXIS_COUNT] = { 0.0f, 0.0f, 0.0f };
 static float rateSpPrev[XYZ_AXIS_COUNT] = { 0.0f, 0.0f, 0.0f };
 static timeUs_t slewLastUs = 0;
 
+// Setpoint dropout accounting -- see targetSetpointDropoutStats_t in the header for why.
+// Written only from targetAttitudeUpdate (PID task), read from the MSP task via the
+// getter below. The fields are plain integers and each is a single store, so a reader
+// can at worst see a value one loop old; there is no multi-word invariant here that a
+// torn read could break, which is why this does not need a critical section on a loop
+// that cannot afford one.
+static targetSetpointDropoutStats_t spDropStats;
+static timeUs_t spStaleSinceUs = 0;   // 0 = not currently in a stale run
+static timeUs_t spLastLoopUs = 0;     // previous loop, for accruing the run in ms
+static uint32_t spStaleRunMs = 0;     // length of the run in progress
+
+const targetSetpointDropoutStats_t *targetGetSetpointDropoutStats(void)
+{
+    return &spDropStats;
+}
+
 // The last MSP_SET_TARGET_CORRECTION command as received, in the wire's own
 // fixed-point scale (q x16384, gain x10000), for blackbox logging. Kept separate
 // from qSp/targetGain because those hold the COMPOSED absolute setpoint and the
@@ -303,13 +319,59 @@ NOINLINE void targetAttitudeUpdate(timeUs_t currentTimeUs)
         slewLastUs = 0;
         rateSp[FD_ROLL] = rateSp[FD_PITCH] = rateSp[FD_YAW] = 0.0f;
         rateSpPrev[FD_ROLL] = rateSpPrev[FD_PITCH] = rateSpPrev[FD_YAW] = 0.0f;
+        // Out of the mode, so no stream is expected and nothing can be stale. Cleared here
+        // rather than left at its last value: the app polls these and must not keep warning
+        // about a dropout belonging to an engagement that has already ended. The cumulative
+        // totals are deliberately NOT reset -- they are a since-boot record and the app
+        // deltas them against its own snapshot, exactly as it does the parser rejects.
+        spDropStats.expected = 0;
+        spDropStats.staleNow = 0;
+        spStaleSinceUs = 0;
+        spStaleRunMs = 0;
         return;
     }
 
     quaternion qCur;
     getQuaternion(&qCur);
 
-    if (targetAttitudeIsFresh()) {
+    const bool fresh = targetAttitudeIsFresh();
+
+    // A stream is expected only once the pilot has actually handed the aircraft over:
+    // armed and MSP OVERRIDE active (TARGET_MODE is implied -- the early return above
+    // guards it). These are the same conditions the servo engage uses. Charging the
+    // counter outside them would bill it for every benign moment the app is simply not
+    // flying the aircraft, and the number would stop meaning anything.
+    spDropStats.expected = (ARMING_FLAG(ARMED) && IS_RC_MODE_ACTIVE(BOXMSPOVERRIDE)) ? 1 : 0;
+    spDropStats.staleNow = fresh ? 0 : 1;
+
+    if (!fresh) {
+        if (spStaleSinceUs == 0) {
+            // The fresh -> stale edge: the instant this aircraft stopped following the
+            // tracker and the pilot's sticks took over, mid-engagement.
+            spStaleSinceUs = currentTimeUs;
+            spLastLoopUs = currentTimeUs;
+            spStaleRunMs = 0;
+            if (spDropStats.expected) {
+                spDropStats.dropouts++;
+            }
+        } else {
+            // Accrue every loop rather than closing the run out on the recovery edge, so a
+            // dropout still in progress reports the time accrued so far instead of reading
+            // zero until it ends -- which is precisely when the pilot needs to see it.
+            const uint32_t dMs = (uint32_t)(cmpTimeUs(currentTimeUs, spLastLoopUs) / 1000);
+            spLastLoopUs = currentTimeUs;
+            spDropStats.staleMsTotal += dMs;
+            spStaleRunMs += dMs;
+            if (spStaleRunMs > spDropStats.staleMsMax) {
+                spDropStats.staleMsMax = (spStaleRunMs > 65535u) ? 65535u : (uint16_t)spStaleRunMs;
+            }
+        }
+    } else {
+        spStaleSinceUs = 0;
+        spStaleRunMs = 0;
+    }
+
+    if (fresh) {
         // External setpoint streamed by VOT_C (autonomous tracker): follow it.
         targetComputeRate(&qCur, &qSp, targetGain);
     } else {

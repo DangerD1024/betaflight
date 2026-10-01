@@ -133,3 +133,33 @@ uint8_t targetAttitudeBlackboxState(void);
 // The ramp back to 0 on the way out is NOT delayed: centring the camera is the safe
 // direction and should not be held off.
 int16_t targetServoOffsetUpdate(void);
+
+
+// Setpoint dropout accounting for the external (VOT_C) MSP 231 stream.
+//
+// WHY THIS EXISTS. targetAttitudeUpdate() picks its control law from
+// targetAttitudeIsFresh(): fresh means follow the tracker, stale means fall back to
+// STANDALONE MANUAL and let the pilot's sticks fly the aircraft. That fallback is the
+// right safety behaviour, and it is also completely silent -- nothing tells the pilot
+// the aircraft stopped listening to the tracker mid-engagement. TARGET_STALE_US was
+// widened 200 -> 350 ms precisely because flight 2026-07-02 13:32 showed the FC
+// flip-flopping to manual from MSP delivery hiccups while VOT_C was streaming every
+// frame, and flight 2026-09-04 spent 22 s on the manual law while the app believed it
+// was steering. Both were only discoverable offline, from the blackbox.
+//
+// These counters make it observable in flight and afterwards. Cumulative since boot, so
+// they survive an app restart -- the app can poll them at 2 Hz and still see a dropout
+// that happened between polls, which per-frame observation on the app side cannot.
+//
+// staleMsTotal and staleMsMax accrue every loop while stale rather than being closed out
+// on the recovery edge, so a dropout still in progress is reported with the time accrued
+// so far instead of reading zero until it ends.
+typedef struct targetSetpointDropoutStats_s {
+    uint32_t dropouts;      // fresh -> stale transitions since boot
+    uint32_t staleMsTotal;  // cumulative ms spent on the manual fallback
+    uint16_t staleMsMax;    // longest single stale run, clamped at 65535 ms
+    uint8_t  expected;      // 1 when a stream SHOULD be arriving: armed && TARGET_MODE && BOXMSPOVERRIDE
+    uint8_t  staleNow;      // 1 when the setpoint is stale on this very loop
+} targetSetpointDropoutStats_t;
+
+const targetSetpointDropoutStats_t *targetGetSetpointDropoutStats(void);
