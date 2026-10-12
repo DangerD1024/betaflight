@@ -59,6 +59,8 @@ const char *armingDisableFlagNames[]= {
     "DSHOT_BBANG",
     "NO_ACC_CAL",
     "MOTOR_PROTO",
+    "ALT_HOLD_SW",
+    "POS_HOLD_SW",
     "ARMSWITCH",
 };
 

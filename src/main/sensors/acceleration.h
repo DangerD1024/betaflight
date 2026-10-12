@@ -55,6 +55,9 @@ typedef struct acc_s {
     accDev_t dev;
     uint16_t sampleRateHz;
     float accADC[XYZ_AXIS_COUNT];
+    float jerk[XYZ_AXIS_COUNT];             // derivative of accADC
+    float accMagnitude;                     // in multiples of 1G
+    float jerkMagnitude;                    // in multiples of 1G/s (measure of collision strength)
     bool isAccelUpdatedAtLeastOnce;
 } acc_t;
 

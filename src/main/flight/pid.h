@@ -245,6 +245,7 @@ typedef struct pidProfile_s {
     uint8_t ez_landing_threshold;           // Threshold stick position below which motor output is limited
     uint8_t ez_landing_limit;               // Maximum motor output when all sticks centred and throttle zero
     uint8_t ez_landing_speed;               // Speed below which motor output is limited
+    uint8_t landing_disarm_threshold;       // Accelerometer vector delta (jerk) threshold with disarms if exceeded
 } pidProfile_t;
 
 PG_DECLARE_ARRAY(pidProfile_t, PID_PROFILE_COUNT, pidProfiles);
@@ -422,6 +423,8 @@ typedef struct pidRuntime_s {
     float angleTarget[2];
     bool axisInAngleMode[3];
 #endif
+    bool useEzDisarm;
+    float landingDisarmThreshold;
 } pidRuntime_t;
 
 extern pidRuntime_t pidRuntime;

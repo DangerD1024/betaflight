@@ -83,7 +83,7 @@ const char * const debugModeNames[DEBUG_COUNT] = {
     "CRSF_LINK_STATISTICS_PWR",
     "CRSF_LINK_STATISTICS_DOWN",
     "BARO",
-    "GPS_RESCUE_THROTTLE_PID",
+    "AUTOPILOT_ALTITUDE",
     "DYN_IDLE",
     "FEEDFORWARD_LIMIT",
     "FEEDFORWARD",
@@ -117,4 +117,5 @@ const char * const debugModeNames[DEBUG_COUNT] = {
     "MAG_CALIB",
     "MAG_TASK_RATE",
     "EZLANDING",
+    "AUTOPILOT_POSITION",
 };

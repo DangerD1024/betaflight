@@ -47,6 +47,7 @@ extern "C" {
     #include "io/beeper.h"
     #include "io/gps.h"
 
+    #include "pg/autopilot.h"
     #include "pg/gps_rescue.h"
     #include "pg/motor.h"
     #include "pg/pg.h"
@@ -75,6 +76,7 @@ extern "C" {
     PG_REGISTER(motorConfig_t, motorConfig, PG_MOTOR_CONFIG, 0);
     PG_REGISTER(imuConfig_t, imuConfig, PG_IMU_CONFIG, 0);
     PG_REGISTER(gpsConfig_t, gpsConfig, PG_GPS_CONFIG, 0);
+    PG_REGISTER(autopilotConfig_t, autopilotConfig, PG_AUTOPILOT, 0);
     PG_REGISTER(gpsRescueConfig_t, gpsRescueConfig, PG_GPS_RESCUE, 0);
     PG_REGISTER(positionConfig_t, positionConfig, PG_POSITION, 0);
 
@@ -98,9 +100,6 @@ extern "C" {
     uint8_t activePidLoopDenom = 1;
 
     float getGpsDataIntervalSeconds(void) { return 0.1f; }
-    void pt1FilterUpdateCutoff(pt1Filter_t *filter, float k) { filter->k = k; }
-    void pt2FilterUpdateCutoff(pt2Filter_t *filter, float k) { filter->k = k; }
-    void pt3FilterUpdateCutoff(pt3Filter_t *filter, float k) { filter->k = k; }
 }
 
 uint32_t simulationFeatureFlags = 0;
@@ -1115,7 +1114,6 @@ extern "C" {
     bool usbVcpIsConnected(void) { return false; }
     void pidSetAntiGravityState(bool) {}
     void osdSuppressStats(bool) {}
-    float scaleRangef(float, float, float, float, float) { return 0.0f; }
     bool crashRecoveryModeActive(void) { return false; }
     int32_t getEstimatedAltitudeCm(void) { return 0; }
     bool gpsIsHealthy(void) { return false; }
@@ -1134,31 +1132,15 @@ extern "C" {
     bool isMotorProtocolEnabled(void) { return true; }
     void pinioBoxTaskControl(void) {}
     void schedulerSetNextStateTime(timeDelta_t) {}
-    float getAltitude(void) { return 3000.0f; }
-    float pt1FilterGain(float, float) { return 0.5f; }
-    float pt2FilterGain(float, float)  { return 0.1f; }
-    float pt3FilterGain(float, float)  { return 0.1f; }
-    void pt2FilterInit(pt2Filter_t *throttleDLpf, float) {
-        UNUSED(throttleDLpf);
+    float getAltitudeCm(void) { return 3000.0f; }
+    float getAltitudeDerivative(void) { return 0.0f; }
+    bool isAltitudeAvailable(void) { return true; }
+    float getGpsDataFrequencyHz(void) { return 10.0f; }
+    bool gpsHasNewData(uint16_t* gpsStamp) {
+        UNUSED(*gpsStamp);
+        return true;
     }
-    float pt2FilterApply(pt2Filter_t *throttleDLpf, float) {
-        UNUSED(throttleDLpf);
-        return 0.0f;
-    }
-    void pt1FilterInit(pt1Filter_t *velocityDLpf, float) {
-        UNUSED(velocityDLpf);
-    }
-    float pt1FilterApply(pt1Filter_t *velocityDLpf, float) {
-        UNUSED(velocityDLpf);
-        return 0.0f;
-    }
-    void pt3FilterInit(pt3Filter_t *velocityUpsampleLpf, float) {
-        UNUSED(velocityUpsampleLpf);
-    }
-    float pt3FilterApply(pt3Filter_t *velocityUpsampleLpf, float) {
-        UNUSED(velocityUpsampleLpf);
-        return 0.0f;
-    }
+    void GPS_distance2d(const gpsLocation_t* /*from*/, const gpsLocation_t* /*to*/, vector2_t* /*dest*/) { }
     void getRcDeflectionAbs(void) {}
     uint32_t getCpuPercentageLate(void) { return 0; };
 }

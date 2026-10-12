@@ -24,6 +24,8 @@
 
 #pragma once
 
+#include <math.h>
+
 #include "common/maths.h"
 
 typedef union {
@@ -44,6 +46,10 @@ typedef union {
 typedef struct {
     float m[3][3];
 } fpMat33_t;
+
+// upstream (4.6) names for the same types
+typedef fpVector2_t vector2_t;
+typedef fpVector3_t vector3_t;
 
 static inline fpVector3_t * vectorZero(fpVector3_t *v)
 {
@@ -185,6 +191,36 @@ static inline fpVector3_t * matrixTrnVectorMul(fpVector3_t * result, const fpMat
 
     *result = r;
     return result;
+}
+
+static inline fpVector2_t * vector2Add(fpVector2_t *result, const fpVector2_t *a, const fpVector2_t *b)
+{
+    fpVector2_t ab;
+
+    ab.x = a->x + b->x;
+    ab.y = a->y + b->y;
+
+    *result = ab;
+    return result;
+}
+
+// rotate vector v by angle (radians), counterclockwise
+static inline fpVector2_t * vector2Rotate(fpVector2_t *result, const fpVector2_t *v, const float angle)
+{
+    fpVector2_t r;
+    const float s = sin_approx(angle);
+    const float c = cos_approx(angle);
+
+    r.x = v->x * c - v->y * s;
+    r.y = v->x * s + v->y * c;
+
+    *result = r;
+    return result;
+}
+
+static inline float vector3Norm(const fpVector3_t *v)
+{
+    return vectorNorm(v);
 }
 
 static inline float vector2Cross(const fpVector2_t *a, const fpVector2_t *b)

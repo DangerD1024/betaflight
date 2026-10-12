@@ -517,6 +517,16 @@
 
 #if !defined(USE_ACC)
 #undef USE_GPS_RESCUE
+#undef USE_ALTITUDE_HOLD
+#undef USE_POSITION_HOLD
+#endif
+
+#if !defined(USE_GPS)
+#undef USE_POSITION_HOLD
+#endif
+
+#if !defined(USE_GPS) && !defined(USE_BARO)
+#undef USE_ALTITUDE_HOLD
 #undef USE_ACRO_TRAINER
 #endif
 

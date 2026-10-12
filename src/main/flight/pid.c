@@ -46,6 +46,7 @@
 #include "fc/rc_controls.h"
 #include "fc/runtime_config.h"
 
+#include "flight/autopilot.h"
 #include "flight/gps_rescue.h"
 #include "flight/imu.h"
 #include "flight/mixer.h"
@@ -54,6 +55,7 @@
 
 #include "io/gps.h"
 
+#include "pg/autopilot.h"
 #include "pg/pg.h"
 #include "pg/pg_ids.h"
 
@@ -231,6 +233,7 @@ void resetPidProfile(pidProfile_t *pidProfile)
         .ez_landing_threshold = 25,
         .ez_landing_limit = 15,
         .ez_landing_speed = 50,
+        .landing_disarm_threshold = 0, // relatively safe values are around 100
     );
 
 #ifndef USE_D_MIN
@@ -375,7 +378,7 @@ STATIC_UNIT_TESTED FAST_CODE_NOINLINE float pidLevel(int axis, const pidProfile_
 {
     // Applies only to axes that are in Angle mode
     // We now use Acro Rates, transformed into the range +/- 1, to provide setpoints
-    const float angleLimit = pidProfile->angle_limit;
+    float angleLimit = pidProfile->angle_limit;
     float angleFeedforward = 0.0f;
     // if user changes rates profile, update the max setpoint for angle mode
     const float maxSetpointRateInv = 1.0f / getMaxRcRate(axis);
@@ -393,6 +396,21 @@ STATIC_UNIT_TESTED FAST_CODE_NOINLINE float pidLevel(int axis, const pidProfile_
 #ifdef USE_GPS_RESCUE
     angleTarget += gpsRescueAngle[axis] / 100.0f; // Angle is in centidegrees, stepped on roll at 10Hz but not on pitch
 #endif
+#ifdef USE_POSITION_HOLD
+    if (FLIGHT_MODE(POS_HOLD_MODE)) {
+        angleFeedforward = 0.0f; // otherwise the lag of the PT3 carries recent stick inputs into the hold
+        if (isAutopilotInControl()) {
+            // sticks are not deflected
+            angleTarget = autopilotAngle[axis]; // autopilotAngle in degrees
+            angleLimit = 85.0f; // allow autopilot to use whatever angle it needs to stop
+        }
+        // limit pilot requested angle to half the autopilot angle to avoid excess speed and chaotic stops
+        angleLimit = fminf(0.5f * autopilotConfig()->maxAngle, angleLimit);
+    }
+#endif
+
+    angleTarget = constrainf(angleTarget, -angleLimit, angleLimit);
+
     const float currentAngle = (attitude.raw[axis] - angleTrim->raw[axis]) / 10.0f; // stepped at 500hz with some 4ms flat spots
     const float errorAngle = angleTarget - currentAngle;
     float angleRate = errorAngle * pidRuntime.angleGain + angleFeedforward;
@@ -402,7 +420,7 @@ STATIC_UNIT_TESTED FAST_CODE_NOINLINE float pidLevel(int axis, const pidProfile_
     // earthRef code here takes about 76 cycles, if conditional on angleEarthRef it takes about 100.  sin_approx costs most of those cycles.
     float sinAngle = sin_approx(DEGREES_TO_RADIANS(pidRuntime.angleTarget[axis == FD_ROLL ? FD_PITCH : FD_ROLL]));
     sinAngle *= (axis == FD_ROLL) ? -1.0f : 1.0f; // must be negative for Roll
-    const float earthRefGain = FLIGHT_MODE(GPS_RESCUE_MODE) ? 1.0f : pidRuntime.angleEarthRef;
+    const float earthRefGain = FLIGHT_MODE(GPS_RESCUE_MODE | ALT_HOLD_MODE) ? 1.0f : pidRuntime.angleEarthRef;
     angleRate += pidRuntime.angleYawSetpoint * sinAngle * earthRefGain;
     pidRuntime.angleTarget[axis] = angleTarget;  // set target for alternate axis to current axis, for use in preceding calculation
 
@@ -410,7 +428,7 @@ STATIC_UNIT_TESTED FAST_CODE_NOINLINE float pidLevel(int axis, const pidProfile_
     // this filter runs at ATTITUDE_CUTOFF_HZ, currently 50hz, so GPS roll may be a bit steppy
     angleRate = pt3FilterApply(&pidRuntime.attitudeFilter[axis], angleRate);
 
-    if (FLIGHT_MODE(ANGLE_MODE) || FLIGHT_MODE(GPS_RESCUE_MODE)) {
+    if (FLIGHT_MODE(ANGLE_MODE | GPS_RESCUE_MODE | POS_HOLD_MODE)) {
         currentPidSetpoint = angleRate;
     } else {
         // can only be HORIZON mode - crossfade Angle rate and Acro rate
@@ -531,7 +549,7 @@ static FAST_CODE_NOINLINE float applyAcroTrainer(int axis, const rollAndPitchTri
 {
     float ret = setPoint;
 
-    if (!FLIGHT_MODE(ANGLE_MODE) && !FLIGHT_MODE(HORIZON_MODE) && !FLIGHT_MODE(GPS_RESCUE_MODE)) {
+    if (!FLIGHT_MODE(ANGLE_MODE | HORIZON_MODE | GPS_RESCUE_MODE | ALT_HOLD_MODE | POS_HOLD_MODE)) {
         bool resetIterm = false;
         float projectedAngle = 0;
         const int setpointSign = acroTrainerSign(setPoint);
@@ -744,6 +762,37 @@ float pidGetAirmodeThrottleOffset(void)
 }
 #endif
 
+#if defined(USE_ACC)
+static FAST_CODE_NOINLINE void disarmOnImpact(void)
+{
+    // if, being armed, and after takeoff...
+    if (wasThrottleRaised()
+        // and, either sticks are centred and throttle zeroed,
+        && ((getMaxRcDeflectionAbs() < 0.05f && mixerGetRcThrottle() < 0.05f)
+#ifdef USE_ALTITUDE_HOLD
+            // or, in altitude hold mode, where throttle can be non-zero
+            || FLIGHT_MODE(ALT_HOLD_MODE)
+#endif
+        )) {
+        // increase sensitivity by 50% when low and in altitude hold or failsafe landing
+        // for more reliable disarm with gentle controlled landings
+        float lowAltitudeSensitivity = 1.0f;
+#ifdef USE_ALTITUDE_HOLD
+        lowAltitudeSensitivity = (FLIGHT_MODE(ALT_HOLD_MODE) && isBelowLandingAltitude()) ? 1.5f : 1.0f;
+#endif
+        // and disarm if jerk exceeds threshold...
+        if ((acc.jerkMagnitude * lowAltitudeSensitivity) > pidRuntime.landingDisarmThreshold) {
+            // then disarm
+            setArmingDisabled(ARMING_DISABLED_ARM_SWITCH); // NB: need a better message
+            disarm(DISARM_REASON_LANDING);
+            // note: threshold should be high enough to avoid unwanted disarms in the air on throttle chops, eg around 10
+        }
+    }
+    DEBUG_SET(DEBUG_EZLANDING, 6, lrintf(getMaxRcDeflectionAbs() * 100.0f));
+    DEBUG_SET(DEBUG_EZLANDING, 7, lrintf(acc.jerkMagnitude * 1e3f));
+}
+#endif // USE_ACC
+
 #ifdef USE_LAUNCH_CONTROL
 #define LAUNCH_CONTROL_MAX_RATE 100.0f
 #define LAUNCH_CONTROL_MIN_RATE 5.0f
@@ -808,14 +857,21 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
 
 #if defined(USE_ACC)
     static timeUs_t levelModeStartTimeUs = 0;
-    static bool gpsRescuePreviousState = false;
+    static bool prevExternalAngleRequest = false;
     const rollAndPitchTrims_t *angleTrim = &accelerometerConfig()->accelerometerTrims;
     float horizonLevelStrength = 0.0f;
 
-    const bool gpsRescueIsActive = FLIGHT_MODE(GPS_RESCUE_MODE);
+    const bool isExternalAngleModeRequest = FLIGHT_MODE(GPS_RESCUE_MODE)
+#ifdef USE_ALTITUDE_HOLD
+                || FLIGHT_MODE(ALT_HOLD_MODE)
+#endif
+#ifdef USE_POSITION_HOLD
+                || FLIGHT_MODE(POS_HOLD_MODE)
+#endif
+                ;
     levelMode_e levelMode;
-    if (FLIGHT_MODE(ANGLE_MODE) || FLIGHT_MODE(HORIZON_MODE) || gpsRescueIsActive) {
-        if (pidRuntime.levelRaceMode && !gpsRescueIsActive) {
+    if (FLIGHT_MODE(ANGLE_MODE | HORIZON_MODE | GPS_RESCUE_MODE)) {
+        if (pidRuntime.levelRaceMode && !isExternalAngleModeRequest) {
             levelMode = LEVEL_MODE_R;
         } else {
             levelMode = LEVEL_MODE_RP;
@@ -824,7 +880,7 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
         // Keep track of when we entered a self-level mode so that we can
         // add a guard time before crash recovery can activate.
         // Also reset the guard time whenever GPS Rescue is activated.
-        if ((levelModeStartTimeUs == 0) || (gpsRescueIsActive && !gpsRescuePreviousState)) {
+        if ((levelModeStartTimeUs == 0) || (isExternalAngleModeRequest && !prevExternalAngleRequest)) {
             levelModeStartTimeUs = currentTimeUs;
         }
 
@@ -837,7 +893,7 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
         levelModeStartTimeUs = 0;
     }
 
-    gpsRescuePreviousState = gpsRescueIsActive;
+    prevExternalAngleRequest = isExternalAngleModeRequest;
 #else
     UNUSED(pidProfile);
     UNUSED(currentTimeUs);
@@ -883,6 +939,12 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
 
 #ifdef USE_RPM_FILTER
     rpmFilterUpdate();
+#endif
+
+#if defined(USE_ACC)
+    if (pidRuntime.useEzDisarm) {
+        disarmOnImpact();
+    }
 #endif
 
 #if defined(USE_ACC)

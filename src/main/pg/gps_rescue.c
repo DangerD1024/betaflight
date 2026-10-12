@@ -20,6 +20,7 @@
 
 #include "platform.h"
 
+
 #ifdef USE_GPS_RESCUE
 
 #include "flight/gps_rescue.h"
@@ -29,7 +30,7 @@
 
 #include "gps_rescue.h"
 
-PG_REGISTER_WITH_RESET_TEMPLATE(gpsRescueConfig_t, gpsRescueConfig, PG_GPS_RESCUE, 5);
+PG_REGISTER_WITH_RESET_TEMPLATE(gpsRescueConfig_t, gpsRescueConfig, PG_GPS_RESCUE, 7);
 
 PG_RESET_TEMPLATE(gpsRescueConfig_t, gpsRescueConfig,
 
@@ -46,20 +47,12 @@ PG_RESET_TEMPLATE(gpsRescueConfig_t, gpsRescueConfig,
 
     .descentDistanceM = 20,
     .descendRate = 150,         // cm/s, minimum for descent and landing phase, or for descending if starting high ascent
-    .targetLandingAltitudeM = 4,
-    .disarmThreshold = 20,
-
-    .throttleMin = 1100,
-    .throttleMax = 1700,
-    .throttleHover = 1275,
+    .disarmThreshold = 30,
 
     .allowArmingWithoutFix = false,
     .sanityChecks = RESCUE_SANITY_FS_ONLY,
     .minSats = 8,
 
-    .throttleP = 15,
-    .throttleI = 15,
-    .throttleD = 20,
     .velP = 8,
     .velI = 40,
     .velD = 12,
@@ -70,3 +63,4 @@ PG_RESET_TEMPLATE(gpsRescueConfig_t, gpsRescueConfig,
 );
 
 #endif // USE_GPS_RESCUE
+

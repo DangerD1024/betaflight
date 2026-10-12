@@ -71,6 +71,8 @@
 #define BUILD_OPTION_RACE_PRO                   16419
 #define BUILD_OPTION_SERVOS                     16420
 #define BUILD_OPTION_VTX                        16421
+#define BUILD_OPTION_ALTITUDE_HOLD              16422
+#define BUILD_OPTION_POSITION_HOLD              16425
 // Motor Protocols
 #define BUILD_OPTION_BRUSHED                    8230
 #define BUILD_OPTION_DSHOT                      8231

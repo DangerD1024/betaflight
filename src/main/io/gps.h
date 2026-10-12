@@ -25,6 +25,7 @@
 
 #include "common/axis.h"
 #include "common/time.h"
+#include "common/vector.h"
 
 #include "io/serial.h"
 
@@ -395,5 +396,8 @@ void GPS_reset_home_position(void);
 void GPS_calc_longitude_scaling(int32_t lat);
 void GPS_distance_cm_bearing(int32_t *currentLat1, int32_t *currentLon1, int32_t *destinationLat2, int32_t *destinationLon2, uint32_t *dist, int32_t *bearing);
 void gpsSetFixState(bool state);
-float getGpsDataIntervalSeconds(void);      // sends GPS Nav Data interval to GPS Rescue
+float getGpsDataIntervalSeconds(void);      // sends GPS Nav Data interval to GPS Rescue, range 0.05 - 2.5s
+float getGpsDataFrequencyHz(void);          // range 20Hz - 0.4Hz
+bool gpsHasNewData(uint16_t *stamp);        // true once per new GPS position update, per client stamp
+void GPS_distance2d(const gpsLocation_t *from, const gpsLocation_t *to, vector2_t *distance); // local ENU distance, cm
 baudRate_e getGpsPortActualBaudRateIndex(void);

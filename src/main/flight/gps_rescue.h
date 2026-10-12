@@ -17,6 +17,7 @@
 
 #pragma once
 
+
 #include <stdbool.h>
 
 #include "common/axis.h"
@@ -45,16 +46,14 @@ typedef enum {
     GPS_RESCUE_ALT_MODE_COUNT
 } gpsRescueAltitudeMode_e;
 
-extern float gpsRescueAngle[ANGLE_INDEX_COUNT]; // NOTE: ANGLES ARE IN CENTIDEGREES
+extern float gpsRescueAngle[RP_AXIS_COUNT]; // NOTE: ANGLES ARE IN CENTIDEGREES
 
 void gpsRescueInit(void);
 void gpsRescueUpdate(void);
-void gpsRescueNewGpsData(void);
-
 float gpsRescueGetYawRate(void);
-float gpsRescueGetThrottle(void);
 bool gpsRescueIsConfigured(void);
 bool gpsRescueIsAvailable(void);
 bool gpsRescueIsDisabled(void);
 bool gpsRescueDisableMag(void);
 float gpsRescueGetImuYawCogGain(void);
+

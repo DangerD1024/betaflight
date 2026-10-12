@@ -388,7 +388,12 @@
 #define USE_GPS_NMEA
 #define USE_GPS_UBLOX
 #define USE_GPS_RESCUE
+#define USE_POSITION_HOLD
 #endif // USE_GPS
+
+#if defined(USE_GPS) || defined(USE_BARO)
+#define USE_ALTITUDE_HOLD
+#endif
 
 
 #if (defined(USE_OSD_HD) || defined(USE_OSD_SD)) && !defined(USE_OSD)

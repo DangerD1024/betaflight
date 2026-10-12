@@ -48,6 +48,17 @@ FAST_CODE_NOINLINE float pt1FilterGain(float f_cut, float dT)
     return omega / (omega + 1.0f);
 }
 
+float pt1FilterGainFromDelay(float delay, float dT)
+{
+    if (delay <= 0) {
+        return 1.0f; // gain = 1 means no filtering
+    }
+
+    // cutoffHz = 1.0f / (2.0f * M_PIf * delay)
+
+    return dT / (dT + delay);
+}
+
 void pt1FilterInit(pt1Filter_t *filter, float k)
 {
     filter->state = 0.0f;

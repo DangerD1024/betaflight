@@ -45,6 +45,8 @@
 #include "fc/rc_modes.h"
 #include "fc/runtime_config.h"
 
+#include "flight/alt_hold.h"
+#include "flight/autopilot.h"
 #include "flight/failsafe.h"
 #include "flight/gps_rescue.h"
 #include "flight/imu.h"
@@ -100,6 +102,7 @@ void stopMotors(void)
 }
 
 static FAST_DATA_ZERO_INIT float throttle = 0;
+static FAST_DATA_ZERO_INIT float rcThrottle = 0;
 static FAST_DATA_ZERO_INIT float mixerThrottle = 0;
 static FAST_DATA_ZERO_INIT float motorOutputMin;
 static FAST_DATA_ZERO_INIT float motorRangeMin;
@@ -264,6 +267,7 @@ static void calculateThrottleAndCurrentMotorEndpoints(timeUs_t currentTimeUs)
     }
 
     throttle = constrainf(throttle / currentThrottleInputRange, 0.0f, 1.0f);
+    rcThrottle = throttle;
 }
 
 #define CRASH_FLIP_DEADBAND 20
@@ -722,11 +726,18 @@ FAST_CODE_NOINLINE void mixTable(timeUs_t currentTimeUs)
     }
 #endif
 
+#ifdef USE_ALTITUDE_HOLD
+    // Throttle value to be used during altitude hold mode (and failsafe landing mode)
+    if (FLIGHT_MODE(ALT_HOLD_MODE)) {
+        throttle = getAutopilotThrottle();
+    }
+#endif
+
 #ifdef USE_GPS_RESCUE
     // If gps rescue is active then override the throttle. This prevents things
     // like throttle boost or throttle limit from negatively affecting the throttle.
     if (FLIGHT_MODE(GPS_RESCUE_MODE)) {
-        throttle = gpsRescueGetThrottle();
+        throttle = getAutopilotThrottle();
     }
 #endif
 
@@ -752,7 +763,7 @@ FAST_CODE_NOINLINE void mixTable(timeUs_t currentTimeUs)
         && ARMING_FLAG(ARMED)
         && !mixerRuntime.feature3dEnabled
         && !airmodeEnabled
-        && !FLIGHT_MODE(GPS_RESCUE_MODE)   // disable motor_stop while GPS Rescue is active
+        && !FLIGHT_MODE(GPS_RESCUE_MODE | ALT_HOLD_MODE | POS_HOLD_MODE)   // disable motor_stop while GPS Rescue / Alt Hold / Pos Hold is active
         && (rcData[THROTTLE] < rxConfig()->mincheck)) {
         // motor_stop handling
         applyMotorStop();
@@ -765,6 +776,11 @@ FAST_CODE_NOINLINE void mixTable(timeUs_t currentTimeUs)
 void mixerSetThrottleAngleCorrection(int correctionValue)
 {
     throttleAngleCorrection = correctionValue;
+}
+
+float mixerGetRcThrottle(void)
+{
+    return rcThrottle;
 }
 
 float mixerGetThrottle(void)

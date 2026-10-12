@@ -710,7 +710,7 @@ void detectAndApplySignalLossBehaviour(void)
                 if (!thisChannelValid) {
                     if (channel == THROTTLE ) {
                         sample = failsafeConfig()->failsafe_throttle;
-                        // stage 2 failsafe throttle value. In GPS Rescue Flight mode, gpsRescueGetThrottle overrides, late in mixer.c
+                        // stage 2 failsafe throttle value. In GPS Rescue / Alt Hold flight modes, getAutopilotThrottle overrides, late in mixer.c
                     } else {
                         sample = rxConfig()->midrc;
                     }

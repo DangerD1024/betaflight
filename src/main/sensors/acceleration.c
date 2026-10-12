@@ -24,6 +24,8 @@
 
 #include "platform.h"
 
+#include "common/maths.h"
+
 #ifdef USE_ACC
 
 #include "build/debug.h"
@@ -78,10 +80,18 @@ void accUpdate(timeUs_t currentTimeUs)
 
     applyAccelerationTrims(accelerationRuntime.accelerationTrims);
 
+    static float accAdcPrev[XYZ_AXIS_COUNT];
     for (int axis = 0; axis < XYZ_AXIS_COUNT; axis++) {
         const float val = acc.accADC[axis];
         acc.accADC[axis] = accelerationRuntime.accLpfCutHz ? pt2FilterApply(&accelerationRuntime.accFilter[axis], val) : val;
+
+        // Calculate derivative of acc (jerk)
+        acc.jerk[axis] = (acc.accADC[axis] - accAdcPrev[axis]) * acc.sampleRateHz;
+        accAdcPrev[axis] = acc.accADC[axis];
     }
+
+    acc.accMagnitude = sqrtf(sq(acc.accADC[X]) + sq(acc.accADC[Y]) + sq(acc.accADC[Z])) * acc.dev.acc_1G_rec;
+    acc.jerkMagnitude = sqrtf(sq(acc.jerk[X]) + sq(acc.jerk[Y]) + sq(acc.jerk[Z])) * acc.dev.acc_1G_rec;
 }
 
 #endif

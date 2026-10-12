@@ -50,7 +50,7 @@ static const box_t boxes[CHECKBOX_ITEM_COUNT] = {
     { .boxId = BOXARM, .boxName = "ARM", .permanentId = 0 },
     { .boxId = BOXANGLE, .boxName = "ANGLE", .permanentId = 1 },
     { .boxId = BOXHORIZON, .boxName = "HORIZON", .permanentId = 2 },
-//    { .boxId = BOXBARO, .boxName = "BARO", .permanentId = 3 },
+    { .boxId = BOXALTHOLD, .boxName = "ALTHOLD", .permanentId = 3 },
     { .boxId = BOXANTIGRAVITY, .boxName = "ANTI GRAVITY", .permanentId = 4 },
     { .boxId = BOXMAG, .boxName = "MAG", .permanentId = 5 },
     { .boxId = BOXHEADFREE, .boxName = "HEADFREE", .permanentId = 6 },
@@ -58,6 +58,7 @@ static const box_t boxes[CHECKBOX_ITEM_COUNT] = {
     { .boxId = BOXCAMSTAB, .boxName = "CAMSTAB", .permanentId = 8 },
 //    { .boxId = BOXCAMTRIG, .boxName = "CAMTRIG", .permanentId = 9 },
 //    { .boxId = BOXGPSHOME, .boxName = "GPS HOME", .permanentId = 10 },
+    { .boxId = BOXPOSHOLD, .boxName = "POS HOLD", .permanentId = 11 },
 //    { .boxId = BOXGPSHOLD, .boxName = "GPS HOLD", .permanentId = 11 },
     { .boxId = BOXPASSTHRU, .boxName = "PASSTHRU", .permanentId = 12 },
     { .boxId = BOXBEEPERON, .boxName = "BEEPER", .permanentId = 13 },
@@ -206,6 +207,12 @@ void initActiveBoxIds(void)
     if (sensors(SENSOR_ACC)) {
         BME(BOXANGLE);
         BME(BOXHORIZON);
+#ifdef USE_ALTITUDE_HOLD
+        BME(BOXALTHOLD);
+#endif
+#ifdef USE_POSITION_HOLD
+        BME(BOXPOSHOLD);
+#endif
         BME(BOXHEADFREE);
         BME(BOXHEADADJ);
         BME(BOXFPVANGLEMIX);

@@ -62,6 +62,7 @@
 #define PARAM_NAME_EZ_LANDING_THRESHOLD "ez_landing_threshold"
 #define PARAM_NAME_EZ_LANDING_LIMIT "ez_landing_limit"
 #define PARAM_NAME_EZ_LANDING_SPEED "ez_landing_speed"
+#define PARAM_NAME_LANDING_DISARM_THRESHOLD "landing_disarm_threshold"
 #define PARAM_NAME_THROTTLE_LIMIT_TYPE "throttle_limit_type"
 #define PARAM_NAME_THROTTLE_LIMIT_PERCENT "throttle_limit_percent"
 #define PARAM_NAME_GYRO_CAL_ON_FIRST_ARM "gyro_cal_on_first_arm"
@@ -132,6 +133,21 @@
 #define PARAM_NAME_POSITION_ALTITUDE_PREFER_BARO "altitude_prefer_baro"
 #define PARAM_NAME_POSITION_ALTITUDE_LPF "altitude_lpf"
 #define PARAM_NAME_POSITION_ALTITUDE_D_LPF "altitude_d_lpf"
+
+#define PARAM_NAME_AP_LANDING_ALTITUDE_M "ap_landing_altitude_m"
+#define PARAM_NAME_AP_HOVER_THROTTLE "ap_hover_throttle"
+#define PARAM_NAME_AP_THROTTLE_MIN "ap_throttle_min"
+#define PARAM_NAME_AP_THROTTLE_MAX "ap_throttle_max"
+#define PARAM_NAME_AP_ALTITUDE_P "ap_altitude_p"
+#define PARAM_NAME_AP_ALTITUDE_I "ap_altitude_i"
+#define PARAM_NAME_AP_ALTITUDE_D "ap_altitude_d"
+#define PARAM_NAME_AP_ALTITUDE_F "ap_altitude_f"
+#define PARAM_NAME_AP_POSITION_P "ap_position_p"
+#define PARAM_NAME_AP_POSITION_I "ap_position_i"
+#define PARAM_NAME_AP_POSITION_D "ap_position_d"
+#define PARAM_NAME_AP_POSITION_A "ap_position_a"
+#define PARAM_NAME_AP_POSITION_CUTOFF "ap_position_cutoff"
+#define PARAM_NAME_AP_MAX_ANGLE "ap_max_angle"
 #define PARAM_NAME_ANGLE_FEEDFORWARD "angle_feedforward"
 #define PARAM_NAME_ANGLE_FF_SMOOTHING_MS "angle_feedforward_smoothing_ms"
 #define PARAM_NAME_ANGLE_LIMIT "angle_limit"
@@ -174,20 +190,13 @@
 
 #define PARAM_NAME_GPS_RESCUE_DESCENT_DIST "gps_rescue_descent_dist"
 #define PARAM_NAME_GPS_RESCUE_DESCEND_RATE "gps_rescue_descend_rate"
-#define PARAM_NAME_GPS_RESCUE_LANDING_ALT "gps_rescue_landing_alt"
 #define PARAM_NAME_GPS_RESCUE_DISARM_THRESHOLD "gps_rescue_disarm_threshold"
 
-#define PARAM_NAME_GPS_RESCUE_THROTTLE_MIN "gps_rescue_throttle_min"
-#define PARAM_NAME_GPS_RESCUE_THROTTLE_MAX "gps_rescue_throttle_max"
-#define PARAM_NAME_GPS_RESCUE_THROTTLE_HOVER "gps_rescue_throttle_hover"
 
 #define PARAM_NAME_GPS_RESCUE_SANITY_CHECKS "gps_rescue_sanity_checks"
 #define PARAM_NAME_GPS_RESCUE_MIN_SATS "gps_rescue_min_sats"
 #define PARAM_NAME_GPS_RESCUE_ALLOW_ARMING_WITHOUT_FIX "gps_rescue_allow_arming_without_fix"
 
-#define PARAM_NAME_GPS_RESCUE_THROTTLE_P "gps_rescue_throttle_p"
-#define PARAM_NAME_GPS_RESCUE_THROTTLE_I "gps_rescue_throttle_i"
-#define PARAM_NAME_GPS_RESCUE_THROTTLE_D "gps_rescue_throttle_d"
 #define PARAM_NAME_GPS_RESCUE_VELOCITY_P "gps_rescue_velocity_p"
 #define PARAM_NAME_GPS_RESCUE_VELOCITY_I "gps_rescue_velocity_i"
 #define PARAM_NAME_GPS_RESCUE_VELOCITY_D "gps_rescue_velocity_d"
@@ -204,6 +213,16 @@
 #define PARAM_NAME_GPS_LAP_TIMER_MIN_LAP_TIME "gps_lap_timer_min_lap_time_s"
 #define PARAM_NAME_GPS_LAP_TIMER_GATE_TOLERANCE "gps_lap_timer_gate_tolerance_m"
 #endif // USE_GPS_LAP_TIMER
+#endif
+
+#ifdef USE_ALTITUDE_HOLD
+#define PARAM_NAME_ALT_HOLD_DEADBAND "alt_hold_deadband"
+#define PARAM_NAME_ALT_HOLD_CLIMB_RATE "alt_hold_climb_rate"
+#endif
+
+#ifdef USE_POSITION_HOLD
+#define PARAM_NAME_POS_HOLD_WITHOUT_MAG "pos_hold_without_mag"
+#define PARAM_NAME_POS_HOLD_DEADBAND "pos_hold_deadband"
 #endif
 
 #define PARAM_NAME_IMU_DCM_KP "imu_dcm_kp"

@@ -94,8 +94,11 @@
 #include "fc/stats.h"
 #include "fc/tasks.h"
 
+#include "flight/alt_hold.h"
+#include "flight/autopilot.h"
 #include "flight/failsafe.h"
 #include "flight/imu.h"
+#include "flight/pos_hold.h"
 #include "flight/mixer.h"
 #include "flight/gps_rescue.h"
 #include "flight/pid.h"
@@ -832,6 +835,16 @@ void init(void)
     baroStartCalibration();
 #endif
     positionInit();
+    autopilotInit();
+
+// autopilot must be initialised before modes that require the autopilot pids
+#ifdef USE_ALTITUDE_HOLD
+    altHoldInit();
+#endif
+
+#ifdef USE_POSITION_HOLD
+    posHoldInit();
+#endif
 
 #if defined(USE_VTX_COMMON) || defined(USE_VTX_CONTROL)
     vtxTableInit();

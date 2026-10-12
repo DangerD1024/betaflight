@@ -122,6 +122,12 @@ void sbufWriteBuildInfoFlags(sbuf_t *dst)
 #ifdef USE_GPS
         BUILD_OPTION_GPS,
 #endif
+#ifdef USE_ALTITUDE_HOLD
+        BUILD_OPTION_ALTITUDE_HOLD,
+#endif
+#ifdef USE_POSITION_HOLD
+        BUILD_OPTION_POSITION_HOLD,
+#endif
 #ifdef USE_LED_STRIP
         BUILD_OPTION_LED_STRIP,
 #endif

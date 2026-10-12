@@ -48,11 +48,10 @@
 #include "pg/pg_ids.h"
 
 static float displayAltitudeCm = 0.0f;
-static float zeroedAltitudeCm = 0.0f;
+static bool altitudeAvailable = false;
 
-#if defined(USE_BARO) || defined(USE_GPS)
+static float zeroedAltitudeCm = 0.0f;
 static float zeroedAltitudeDerivative = 0.0f;
-#endif
 
 static pt2Filter_t altitudeLpf;
 static pt2Filter_t altitudeDerivativeLpf;
@@ -210,17 +209,30 @@ void calculateEstimatedAltitude(void)
     DEBUG_SET(DEBUG_ALTITUDE, 3, estimatedVario);
 #endif
     DEBUG_SET(DEBUG_RTH, 1, lrintf(displayAltitudeCm / 10.0f));
+    DEBUG_SET(DEBUG_AUTOPILOT_ALTITUDE, 2, lrintf(zeroedAltitudeCm));
+
+    altitudeAvailable = haveGpsAlt || haveBaroAlt;
 }
 #endif //defined(USE_BARO) || defined(USE_GPS)
+
+float getAltitudeCm(void)
+{
+    return zeroedAltitudeCm;
+}
+
+float getAltitudeDerivative(void)
+{
+    return zeroedAltitudeDerivative; // cm/s
+}
+
+bool isAltitudeAvailable(void)
+{
+    return altitudeAvailable;
+}
 
 int32_t getEstimatedAltitudeCm(void)
 {
     return lrintf(displayAltitudeCm);
-}
-
-float getAltitude(void)
-{
-    return zeroedAltitudeCm;
 }
 
 #ifdef USE_VARIO

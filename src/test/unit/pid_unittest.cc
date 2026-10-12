@@ -84,6 +84,12 @@ extern "C" {
     float getMotorMixRange(void) { return simulatedMotorMixRange; }
     float getSetpointRate(int axis) { return simulatedSetpointRate[axis]; }
     bool isAirmodeActivated(void) { return simulatedAirmodeEnabled; }
+    bool wasThrottleRaised(void) { return simulatedAirmodeEnabled; }
+    // used by auto-disarm code
+    acc_t acc;
+    float getMaxRcDeflectionAbs(void) { return 0.0f; }
+    float mixerGetRcThrottle(void) { return 0.0f; }
+    bool isBelowLandingAltitude(void) { return false; }
     float getRcDeflectionAbs(int axis) { return fabsf(simulatedRcDeflection[axis]); }
     void systemBeep(bool) { }
     bool gyroOverflowDetected(void) { return false; }
@@ -96,6 +102,8 @@ extern "C" {
     void beeperConfirmationBeeps(uint8_t) { }
     bool isLaunchControlActive(void) {return unitLaunchControlActive; }
     void disarm(flightLogDisarmReason_e) { }
+    void targetAttitudeUpdate(timeUs_t) { }
+    float targetAttitudeRateSetpoint(int) { return 0.0f; }
     float getMaxRcRate(int axis)
     {
         UNUSED(axis);

@@ -43,5 +43,7 @@ typedef enum {
 } angle_index_t;
 
 #define ANGLE_INDEX_COUNT 2
+#define RP_AXIS_COUNT 2 // roll/pitch, upstream (4.6) name for ANGLE_INDEX_COUNT
+#define EF_AXIS_COUNT 2 // earth-frame axes (lon = east, lat = north)
 
 #define GET_DIRECTION(isReversed) ((isReversed) ? -1 : 1)
